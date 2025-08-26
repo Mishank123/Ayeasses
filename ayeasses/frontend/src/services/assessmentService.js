@@ -420,8 +420,11 @@ class AssessmentService {
       console.log('AvatarAI API call with unique IDs:', {
         chatSessionId: uniqueChatSessionId,
         messageId: uniqueMessageId,
-        userReply: userReply
+        userReply: userReply,
+        courseId: courseId
       });
+      
+      console.log('AvatarAI API payload:', payload);
 
       const response = await axios.post(
         'https://avatarai.awwwex.com/v1/agents/completions',
@@ -468,6 +471,9 @@ class AssessmentService {
         message_id: `msg_${Date.now()}`, // Always include message_id for initial hi
         welcome_message: welcomeMessage
       };
+
+      console.log('sendInitialHi - courseId:', courseId);
+      console.log('sendInitialHi - payload:', payload);
 
       const response = await axios.post(
         'https://avatarai.awwwex.com/v1/agents/completions',

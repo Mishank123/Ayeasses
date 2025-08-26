@@ -72,14 +72,24 @@ const AssessmentModeSelection = () => {
 
         toast.success('Assessment session started successfully!');
         
-        // Navigate to the assessment progress page
-        navigate(`/assessment/${uuid}/progress`, {
-          state: {
-            avatarSettings: avatarConfig,
-            mode: selectedMode,
-            sessionData: result.data
-          }
-        });
+        // Navigate to the appropriate assessment page based on mode
+        if (selectedMode === 'video') {
+          navigate(`/assessment/${uuid}/session`, {
+            state: {
+              avatarSettings: avatarConfig,
+              mode: selectedMode,
+              sessionData: result.data
+            }
+          });
+        } else {
+          navigate(`/assessment/${uuid}/progress`, {
+            state: {
+              avatarSettings: avatarConfig,
+              mode: selectedMode,
+              sessionData: result.data
+            }
+          });
+        }
       } else {
         // Check if it's an existing session error
         if (result.error && result.error.includes('already have an active session')) {
@@ -98,14 +108,24 @@ const AssessmentModeSelection = () => {
           
           toast.success('Resuming existing assessment session!');
           
-          // Navigate to assessment with existing session
-          navigate(`/assessment/${uuid}/progress`, {
-            state: {
-              avatarSettings: avatarConfig,
-              mode: selectedMode,
-              sessionData: existingSessionData
-            }
-          });
+          // Navigate to the appropriate assessment page based on mode
+          if (selectedMode === 'video') {
+            navigate(`/assessment/${uuid}/session`, {
+              state: {
+                avatarSettings: avatarConfig,
+                mode: selectedMode,
+                sessionData: existingSessionData
+              }
+            });
+          } else {
+            navigate(`/assessment/${uuid}/progress`, {
+              state: {
+                avatarSettings: avatarConfig,
+                mode: selectedMode,
+                sessionData: existingSessionData
+              }
+            });
+          }
         } else {
           console.error('Failed to start assessment:', result.error);
           toast.error('Failed to start assessment session. Please try again.');

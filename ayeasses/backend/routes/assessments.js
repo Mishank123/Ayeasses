@@ -195,8 +195,8 @@ router.get('/:uuid', async (req, res) => {
       `SELECT 
         id, title, description, category, difficulty_level as difficultyLevel,
         estimated_duration as estimatedDuration, assessment_type as assessmentType,
-        status, questions_file as questionsFile, avatar_config as avatarConfig,
-        url, created_at as createdAt
+        status, questions_file as questionsFile, questions_file_id as questionsFileId,
+        avatar_config as avatarConfig, url, created_at as createdAt
        FROM assessments WHERE url = ? AND status = "published"`,
       [uuid]
     );
@@ -287,8 +287,8 @@ router.get('/id/:id', authenticateToken, async (req, res) => {
       `SELECT 
         id, title, description, category, difficulty_level as difficultyLevel,
         estimated_duration as estimatedDuration, assessment_type as assessmentType,
-        status, questions_file as questionsFile, created_by as createdBy,
-        created_at as createdAt, updated_at as updatedAt
+        status, questions_file as questionsFile, questions_file_id as questionsFileId,
+        created_by as createdBy, created_at as createdAt, updated_at as updatedAt
        FROM assessments WHERE id = ?`,
       [id]
     );
@@ -1105,18 +1105,23 @@ router.post('/:id/send-reply', authenticateToken, async (req, res) => {
       });
     }
 
-    // Extract the AI response
-    const aiResponse = avatarAIResult.data.reply;
+    // Extract the AI response - check for next_question first, then fallback to reply
+    const nextQuestion = avatarAIResult.data.next_question;
+    const aiResponse = avatarAIResult.data.reply || avatarAIResult.data.response;
     const conversationData = avatarAIResult.data.data;
 
+    // Use next_question if available, otherwise use aiResponse
+    const responseToSend = nextQuestion || aiResponse;
+
     // Send the AI response to Heygen streaming session
-    const heygenResult = await heygenService.sendTextToStream(session.heygen_session_id, aiResponse);
+    const heygenResult = await heygenService.sendTextToStream(session.heygen_session_id, responseToSend);
 
     logger.info(`User reply processed: ${session.id}, AI response sent to Heygen`);
 
     res.json({
       success: true,
-      aiResponse: aiResponse,
+      aiResponse: responseToSend,
+      nextQuestion: nextQuestion,
       conversationData: conversationData,
       sessionId: session.id,
       messageId: heygenResult?.messageId || null
@@ -1195,24 +1200,28 @@ router.post('/:id/chat', authenticateToken, async (req, res) => {
       });
     }
 
-    // Extract the AI response
-    const aiResponse = avatarAIResult.data.reply;
+    // Extract the AI response - check for next_question first, then fallback to reply
+    const nextQuestion = avatarAIResult.data.next_question;
+    const aiResponse = avatarAIResult.data.reply || avatarAIResult.data.response;
     const conversationData = avatarAIResult.data.data;
 
+    // Use next_question if available, otherwise use aiResponse
+    const responseToSend = nextQuestion || aiResponse;
+
     // Send the AI response to Heygen streaming session for avatar speech
-    const heygenResult = await heygenService.sendTextToStream(session.heygen_session_id, aiResponse);
+    const heygenResult = await heygenService.sendTextToStream(session.heygen_session_id, responseToSend);
 
     // Store conversation in database (you can add a conversations table if needed)
     // For now, we'll log it
-    logger.info(`Chat conversation stored: ${session.id}, user: ${req.user.id}, AI response: ${aiResponse.substring(0, 100)}...`);
+    logger.info(`Chat conversation stored: ${session.id}, user: ${req.user.id}, AI response: ${responseToSend.substring(0, 100)}...`);
 
     logger.info(`Chat processed: ${session.id}, AI response sent to Heygen`);
 
     res.json({
       success: true,
-      assistant_reply: aiResponse,
-      next_question: conversationData?.next_question || null,
-      audio_text: aiResponse, // Same as assistant_reply for now
+      assistant_reply: responseToSend,
+      next_question: nextQuestion,
+      audio_text: responseToSend, // Same as assistant_reply for now
       conversationData: conversationData,
       sessionId: session.id,
       messageId: heygenResult?.messageId || null

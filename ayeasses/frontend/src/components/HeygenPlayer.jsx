@@ -14,6 +14,7 @@ const HeygenPlayer = ({ streamUrl, onError, onReady, avatarSettings, spokenText,
   useEffect(() => {
     if (!streamUrl) {
       setError('No stream URL provided');
+      setIsLoading(false);
       return;
     }
 
@@ -107,12 +108,20 @@ const HeygenPlayer = ({ streamUrl, onError, onReady, avatarSettings, spokenText,
       }
     };
 
-    initializePlayer();
+    // Add a small delay to ensure the container is ready
+    const timer = setTimeout(() => {
+      initializePlayer();
+    }, 100);
 
     // Cleanup function
     return () => {
+      clearTimeout(timer);
       if (avatarInstance) {
-        avatarInstance.stop();
+        try {
+          avatarInstance.stop();
+        } catch (err) {
+          console.error('Error stopping avatar:', err);
+        }
       }
     };
   }, [streamUrl, onError, onReady]);
@@ -161,15 +170,16 @@ const HeygenPlayer = ({ streamUrl, onError, onReady, avatarSettings, spokenText,
 
   if (error) {
     return (
-      <div className="flex items-center justify-center h-64 bg-gray-100 rounded-lg">
+      <div className="flex items-center justify-center h-full bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg">
         <div className="text-center">
-          <div className="text-red-500 mb-2">
-            <svg className="w-12 h-12 mx-auto" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+          <div className="text-white mb-4">
+            <svg className="w-16 h-16 mx-auto" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
             </svg>
           </div>
-          <p className="text-gray-600">{error}</p>
-          <p className="text-sm text-gray-500 mt-1">Stream URL: {streamUrl}</p>
+          <p className="text-white font-semibold mb-2">Dr. Jacob Jones</p>
+          <p className="text-white text-sm opacity-90">Avatar temporarily unavailable</p>
+          <p className="text-white text-xs opacity-75 mt-1">Stream URL: {streamUrl}</p>
         </div>
       </div>
     );
@@ -177,10 +187,11 @@ const HeygenPlayer = ({ streamUrl, onError, onReady, avatarSettings, spokenText,
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-64 bg-gray-100 rounded-lg">
+      <div className="flex items-center justify-center h-full bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Connecting to avatar stream...</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
+          <p className="text-white font-semibold mb-2">Dr. Jacob Jones</p>
+          <p className="text-white text-sm opacity-90">Connecting to avatar stream...</p>
         </div>
       </div>
     );
@@ -189,7 +200,7 @@ const HeygenPlayer = ({ streamUrl, onError, onReady, avatarSettings, spokenText,
   // For WebRTC streams, show the official Heygen avatar
   if (streamUrl.startsWith('webrtc://')) {
     return (
-      <div className="relative h-64 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg overflow-hidden">
+      <div className="relative h-full bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg overflow-hidden">
         {/* Heygen Avatar Container */}
         <div 
           ref={avatarRef} 
@@ -257,7 +268,7 @@ const HeygenPlayer = ({ streamUrl, onError, onReady, avatarSettings, spokenText,
 
   // For regular video streams
   return (
-    <div className="relative h-64 bg-black rounded-lg overflow-hidden">
+    <div className="relative h-full bg-black rounded-lg overflow-hidden">
       <video
         ref={videoRef}
         className="w-full h-full object-cover"

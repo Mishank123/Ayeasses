@@ -3,9 +3,10 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import HeygenPlayer from './HeygenPlayer';
 import assessmentService from '../services/assessmentService';
 import heygenService from '../services/heygenService';
+import { toast } from 'react-hot-toast';
 
 const VideoChatAssessment = () => {
-  const { assessmentId } = useParams();
+  const { uuid } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
   const sessionData = location.state?.sessionData;
@@ -20,6 +21,8 @@ const VideoChatAssessment = () => {
   const [streamUrl, setStreamUrl] = useState(null);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [spokenText, setSpokenText] = useState('');
+  const [timer, setTimer] = useState(0);
+  const [currentQuestion, setCurrentQuestion] = useState('');
   
   // New state for Heygen API flow
   const [heygenToken, setHeygenToken] = useState(null);
@@ -27,6 +30,21 @@ const VideoChatAssessment = () => {
 
   const videoRef = useRef(null);
   const messagesEndRef = useRef(null);
+
+  // Timer effect
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTimer(prev => prev + 1);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Format timer
+  const formatTime = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
 
   // Scroll to bottom of messages
   const scrollToBottom = () => {
@@ -44,15 +62,15 @@ const VideoChatAssessment = () => {
         setIsLoading(true);
         
         // Get assessment details from session storage or API
-        const storedAssessment = sessionStorage.getItem(`assessment_${assessmentId}`);
+        const storedAssessment = sessionStorage.getItem(`assessment_${uuid}`);
         if (storedAssessment) {
           setAssessment(JSON.parse(storedAssessment));
         } else {
-          // Fallback to API call if needed
-          const result = await assessmentService.getAssessmentById(assessmentId);
+                     // Fallback to API call if needed
+           const result = await assessmentService.getPublicAssessment(uuid);
           if (result.success) {
             setAssessment(result.data);
-            sessionStorage.setItem(`assessment_${assessmentId}`, JSON.stringify(result.data));
+            sessionStorage.setItem(`assessment_${uuid}`, JSON.stringify(result.data));
           } else {
             throw new Error('Failed to load assessment');
           }
@@ -65,79 +83,103 @@ const VideoChatAssessment = () => {
       }
     };
 
-    if (assessmentId) {
+    if (uuid) {
       loadAssessment();
     }
-  }, [assessmentId]);
+  }, [uuid]);
 
-  // Initialize Heygen streaming session with correct API flow
+  // Initialize session data and send initial hi
   useEffect(() => {
-    const initializeHeygenSession = async () => {
-      if (!assessment) return;
+    const initializeSession = async () => {
+      if (!assessment || hasSentInitialHi) return;
 
       try {
-        console.log('Initializing Heygen streaming session with proper session management...');
+        console.log('Initializing session data...');
         
-        // Use assessmentService to handle both Heygen and backend session management
-        const result = await assessmentService.startAssessment(
-          assessmentId,
-          'video',
-          sessionData?.userData || {}
-        );
-
-        if (!result.success) {
-          throw new Error(result.error || 'Failed to start assessment');
-        }
-
-        console.log('✅ Assessment session started successfully:', result.data);
-
-        // Set the stream URL from the result
-        if (result.data.streamUrl) {
-          setStreamUrl(result.data.streamUrl);
-          console.log('✅ WebRTC URL set:', result.data.streamUrl);
-        }
-
-        // Set Heygen session ID if available
-        if (result.data.heygenSessionId) {
-          setHeygenStreamId(result.data.heygenSessionId);
-          console.log('✅ Heygen session ID set:', result.data.heygenSessionId);
-        }
-
-        // Handle existing session case
-        if (result.data.existingSession) {
-          console.log('✅ Using existing session:', result.data.sessionId);
-          setChatSessionId(result.data.sessionId);
-        }
-
-        // Send initial welcome message if we have a Heygen session
-        if (result.data.heygenSessionId) {
-          const userData = sessionData?.userData || {};
-          const doctorName = userData.doctor_name || assessment?.avatarConfig?.doctorName || 'Dr. AI Assistant';
-          const userName = userData.user_name || 'User';
-          const doctorTone = userData.doctor_tone || assessment?.avatarConfig?.tone || 'Formal';
-          const doctorMood = userData.doctor_mood || assessment?.avatarConfig?.mood || 'excited';
-          
-          const welcomeMessage = userData.welcome_message || assessment?.avatarConfig?.welcomeMessage || 
-            `Welcome ${userName}! I'm ${doctorName}, and I'm here to guide you through this learning experience. Let's begin your assessment.`;
-          
-          const textResult = await heygenService.sendTextToAvatar(result.data.heygenSessionId, welcomeMessage);
-          if (textResult.success) {
-            setSpokenText(welcomeMessage);
-            setIsSpeaking(true);
-            setTimeout(() => setIsSpeaking(false), 5000);
-            console.log('✅ Welcome message sent successfully');
+        // Get session data from location state or session storage
+        let currentSessionData = sessionData;
+        if (!currentSessionData) {
+          const storedSession = sessionStorage.getItem(`assessmentSession_${uuid}`);
+          if (storedSession) {
+            currentSessionData = JSON.parse(storedSession);
           }
         }
 
-        setHasSentInitialHi(true);
+        if (currentSessionData) {
+          setStreamUrl(currentSessionData.streamUrl);
+          setChatSessionId(currentSessionData.sessionId);
+          
+          // Send initial hi using the same flow as AssessmentProgress
+          await sendInitialHi();
+        } else {
+          console.error('No session data found');
+          setError('Assessment not found or not published');
+        }
+      } catch (err) {
+        console.error('Error initializing session:', err);
+        setError(err.message);
+      }
+    };
+
+    initializeSession();
+  }, [assessment, hasSentInitialHi, uuid, sessionData]);
+
+  // Send initial hi message (same as AssessmentProgress)
+  const sendInitialHi = async () => {
+    try {
+      console.log('Sending initial hi...');
+      
+      // Get questionsFileId from assessment
+      let questionsFileId = assessment?.questionsFileId;
+      if (!questionsFileId) {
+        console.log('questionsFileId not available, fetching fresh assessment data...');
+        const result = await assessmentService.getPublicAssessment(uuid);
+        if (result.success && result.data.questionsFileId) {
+          questionsFileId = result.data.questionsFileId;
+          setAssessment(result.data);
+          console.log('Fresh questionsFileId fetched:', questionsFileId);
+        }
+      }
+
+      if (!questionsFileId) {
+        console.error('Could not get questionsFileId');
+        setError('Failed to get assessment data');
+        return;
+      }
+
+      // Get session data
+      let currentSessionData = sessionData;
+      if (!currentSessionData) {
+        const storedSession = sessionStorage.getItem(`assessmentSession_${uuid}`);
+        if (storedSession) {
+          currentSessionData = JSON.parse(storedSession);
+        }
+      }
+
+      // Call AvatarAI API directly with initial hi
+      const result = await assessmentService.callAvatarAIDirectly(
+        'hi', // user_reply
+        questionsFileId, // course_id
+        currentSessionData?.userId || '6511534f6966f424d53bda75', // user_id
+        currentSessionData?.userName || 'Dnyaneshwar Naiknavare', // user_name
+        chatSessionId || `session_${Date.now()}`, // chat_session_id
+        currentSessionData?.avatarConfig?.avatarPersona === 'dr-jane-doe' ? 'Dr. Jane Doe' : 'Dr. Jacob Jones', // doctor_name
+        currentSessionData?.avatarConfig?.avatarPersona === 'dr-jane-doe' ? '/assets/images/doctor2.png' : '/assets/images/doctor1.png', // doctor_avatar
+        currentSessionData?.avatarConfig?.voiceTone || 'Formal', // doctor_tone
+        currentSessionData?.avatarConfig?.emotionalStyle || 'Excited', // doctor_mood
+        undefined, // message_id
+        currentSessionData?.avatarConfig?.welcomeMessage || "Welcome to this assessment! I'm here to guide you through this learning experience." // welcome_message
+      );
+
+      if (result.success) {
+        console.log('Initial hi sent successfully:', result.data);
+        
+        // Extract next_question or response
+        const nextQuestion = result.data.next_question;
+        const aiResponse = result.data.response || result.data.message || result.data.reply || 'Thank you for joining us. Let\'s begin your assessment.';
         
         // Add welcome message to chat
-        const userData = sessionData?.userData || {};
-        const doctorName = userData.doctor_name || assessment?.avatarConfig?.doctorName || 'Dr. AI Assistant';
-        const userName = userData.user_name || 'User';
-        const welcomeMessage = userData.welcome_message || assessment?.avatarConfig?.welcomeMessage || 
-          `Welcome ${userName}! I'm ${doctorName}, and I'm here to guide you through this learning experience. Let's begin your assessment.`;
-        
+        const welcomeMessage = nextQuestion || aiResponse;
         setMessages([{
           id: Date.now(),
           type: 'avatar',
@@ -145,22 +187,30 @@ const VideoChatAssessment = () => {
           timestamp: new Date()
         }]);
 
-        console.log('🎉 Assessment session initialized successfully');
+        // Update current question
+        if (nextQuestion) {
+          setCurrentQuestion(nextQuestion);
+        }
 
-      } catch (err) {
-        console.error('Error initializing assessment session:', err);
-        setError(err.message);
+        // Update chat session ID
+        if (result.sessionId) {
+          setChatSessionId(result.sessionId);
+        }
+
+        setHasSentInitialHi(true);
+        console.log('✅ Initial hi sent and session initialized');
+      } else {
+        throw new Error(result.error || 'Failed to send initial hi');
       }
-    };
-
-    if (assessment && !hasSentInitialHi) {
-      initializeHeygenSession();
+    } catch (error) {
+      console.error('Error sending initial hi:', error);
+      setError(error.message);
     }
-  }, [assessment, hasSentInitialHi, assessmentId, sessionData]);
+  };
 
-  // Send message to avatar
+  // Send message to avatar (same flow as AssessmentProgress)
   const handleSendMessage = async (text) => {
-    if (!text.trim()) return;
+    if (!text.trim() || !hasSentInitialHi) return;
 
     const messageId = Date.now();
     const userMessage = {
@@ -172,64 +222,81 @@ const VideoChatAssessment = () => {
 
     setMessages(prev => [...prev, userMessage]);
     setInputMessage('');
+    setError(null); // Clear any previous errors
 
     try {
-      // Extract user data from session data
-      const userData = sessionData?.userData || {};
-      const courseId = userData.course_id || assessment?.id;
-      const userId = userData.user_id || 'default-user';
-      const userName = userData.user_name || 'User';
-      const doctorName = userData.doctor_name || assessment?.avatarConfig?.doctorName || 'Dr. AI Assistant';
-      const doctorAvatar = userData.doctor_avatar || assessment?.avatarConfig?.avatarImage || '/assets/images/doctor1.png';
-      const doctorTone = userData.doctor_tone || assessment?.avatarConfig?.tone || 'Formal';
-      const doctorMood = userData.doctor_mood || assessment?.avatarConfig?.mood || 'excited';
-      const welcomeMessage = userData.welcome_message || assessment?.avatarConfig?.welcomeMessage || "Welcome to this assessment! I'm here to guide you through this learning experience.";
+      console.log('handleSendMessage - assessment.questionsFileId:', assessment?.questionsFileId);
+      
+      // If questionsFileId is not available, fetch fresh assessment data
+      let questionsFileId = assessment?.questionsFileId;
+      if (!questionsFileId) {
+        console.log('questionsFileId not available, fetching fresh assessment data...');
+        const result = await assessmentService.getPublicAssessment(uuid);
+        if (result.success && result.data.questionsFileId) {
+          questionsFileId = result.data.questionsFileId;
+          setAssessment(result.data);
+          console.log('Fresh questionsFileId fetched:', questionsFileId);
+        }
+      }
+      
+      if (!questionsFileId) {
+        console.error('Could not get questionsFileId');
+        setError('Failed to get assessment data');
+        return;
+      }
 
-      // Generate unique session ID for this interaction
-      const uniqueSessionId = `session_${Date.now()}`;
-      const uniqueMessageId = `msg_${Date.now()}`;
-
-      // Call AvatarAI directly with unique session data
+      // Get session data
+      let currentSessionData = sessionData;
+      if (!currentSessionData) {
+        const storedSession = sessionStorage.getItem(`assessmentSession_${uuid}`);
+        if (storedSession) {
+          currentSessionData = JSON.parse(storedSession);
+        }
+      }
+      
+      // Call AvatarAI API directly from frontend (same as AssessmentProgress)
       const result = await assessmentService.callAvatarAIDirectly(
-        text.trim(),
-        courseId,
-        userId,
-        userName,
-        uniqueSessionId,
-        doctorName,
-        doctorAvatar,
-        doctorTone,
-        doctorMood,
-        uniqueMessageId,
-        welcomeMessage
+        text.trim(), // user_reply
+        questionsFileId, // course_id - use questions_file_id for AvatarAI API
+        currentSessionData?.userId || '6511534f6966f424d53bda75', // user_id with fallback
+        currentSessionData?.userName || 'Dnyaneshwar Naiknavare', // user_name with fallback
+        chatSessionId || `session_${Date.now()}`, // chat_session_id - use existing or create new
+        currentSessionData?.avatarConfig?.avatarPersona === 'dr-jane-doe' ? 'Dr. Jane Doe' : 'Dr. Jacob Jones', // doctor_name
+        currentSessionData?.avatarConfig?.avatarPersona === 'dr-jane-doe' ? '/assets/images/doctor2.png' : '/assets/images/doctor1.png', // doctor_avatar
+        currentSessionData?.avatarConfig?.voiceTone || 'Formal', // doctor_tone
+        currentSessionData?.avatarConfig?.emotionalStyle || 'Excited', // doctor_mood
+        undefined, // message_id (will be omitted if undefined)
+        currentSessionData?.avatarConfig?.welcomeMessage || "Welcome to this assessment! I'm here to guide you through this learning experience." // welcome_message
       );
-
+      
       if (result.success) {
+        console.log('AvatarAI response:', result.data);
+        
+        // Handle the AI response - check for next_question first, then fallback to response/message
+        const nextQuestion = result.data.next_question;
+        const aiResponse = result.data.response || result.data.message || result.data.reply || 'Thank you for your response.';
+        
         const avatarResponse = {
           id: messageId + 1,
           type: 'avatar',
-          text: result.data.response || result.data.message || 'Thank you for your response.',
+          text: nextQuestion || aiResponse,
           timestamp: new Date()
         };
 
         setMessages(prev => [...prev, avatarResponse]);
 
-        // Send response to Heygen avatar using the stored session_id
-        if (heygenStreamId) {
-          const textResult = await heygenService.sendTextToAvatar(heygenStreamId, avatarResponse.text);
-          if (textResult.success) {
-            setSpokenText(avatarResponse.text);
-            setIsSpeaking(true);
-            setTimeout(() => setIsSpeaking(false), 5000);
-          }
+        // Update current question if next_question is available
+        if (nextQuestion) {
+          setCurrentQuestion(nextQuestion);
         }
 
         // Update chat session ID with the new unique session ID
-        setChatSessionId(uniqueSessionId);
+        if (result.sessionId) {
+          setChatSessionId(result.sessionId);
+        }
         
-        console.log('AvatarAI response with unique session:', {
-          sessionId: uniqueSessionId,
-          messageId: uniqueMessageId,
+        console.log('AvatarAI response with session:', {
+          sessionId: result.sessionId,
           response: avatarResponse.text
         });
       } else {
@@ -238,6 +305,15 @@ const VideoChatAssessment = () => {
     } catch (err) {
       console.error('Error sending message:', err);
       setError(err.message);
+      
+      // Add error message to chat
+      const errorMessage = {
+        id: messageId + 1,
+        type: 'avatar',
+        text: 'Sorry, I encountered an error. Please try again.',
+        timestamp: new Date()
+      };
+      setMessages(prev => [...prev, errorMessage]);
     }
   };
 
@@ -245,6 +321,32 @@ const VideoChatAssessment = () => {
   const handleSubmit = (e) => {
     e.preventDefault();
     handleSendMessage(inputMessage);
+  };
+
+  const handleEndAssessment = async () => {
+    try {
+      // Clear session data first
+      sessionStorage.removeItem(`assessmentSession_${uuid}`);
+      sessionStorage.removeItem(`assessment_${uuid}`);
+      
+      // Try to stop assessment if API is available
+      try {
+        const result = await assessmentService.stopAssessment(uuid);
+        if (result.success) {
+          toast.success('Assessment completed successfully!');
+        }
+      } catch (apiError) {
+        console.log('API stop assessment failed, but continuing with cleanup');
+      }
+      
+      // Navigate to dashboard
+      navigate('/dashboard');
+    } catch (error) {
+      console.error('Error ending assessment:', error);
+      toast.error('Failed to end assessment');
+      // Still navigate to dashboard even if there's an error
+      navigate('/dashboard');
+    }
   };
 
   if (isLoading) {
@@ -279,124 +381,185 @@ const VideoChatAssessment = () => {
     );
   }
 
-  return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center py-4">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">
-                {assessment?.title || 'Video Assessment'}
-              </h1>
-              <p className="text-gray-600">
-                {assessment?.description || 'Interactive video assessment with AI avatar'}
-              </p>
-            </div>
-            <button
-              onClick={() => navigate('/dashboard')}
-              className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg"
-            >
-              Exit Assessment
-            </button>
-          </div>
-        </div>
-      </div>
+     return (
+     <div className="min-h-screen bg-gray-50 flex flex-col">
+       {/* Header */}
+       <div className="bg-white shadow-sm border-b">
+         <div className="max-w-7xl mx-auto px-2 sm:px-4 lg:px-8">
+           <div className="flex justify-between items-center py-2 sm:py-3 lg:py-4">
+             <div className="flex items-center space-x-2 lg:space-x-4">
+               <div className="w-6 h-6 sm:w-8 sm:h-8 lg:w-10 lg:h-10 bg-purple-600 rounded-lg flex items-center justify-center">
+                 <svg className="w-3 h-3 sm:w-4 sm:h-4 lg:w-6 lg:h-6 text-white" fill="currentColor" viewBox="0 0 20 20">
+                   <path d="M10.394 2.08a1 1 0 00-.788 0l-7 3a1 1 0 000 1.84L5.25 8.051a.999.999 0 01.356-.257l4-1.714a1 1 0 11.788 1.838l-2.727 1.17 1.94.831a1 1 0 00.787 0l7-3a1 1 0 000-1.838l-7-3zM3.31 9.397L5 10.12v4.102a8.969 8.969 0 00-1.05-.174 1 1 0 01-.89-.89 11.115 11.115 0 01.25-3.762zM9.3 16.573A9.026 9.026 0 007 14.935v-3.957l1.818.78a3 3 0 002.364 0l5.508-2.361a11.026 11.026 0 01.25 3.762 1 1 0 01-.89.89 8.968 8.968 0 00-5.35 2.524 1 1 0 01-1.4 0zM6 18a1 1 0 001-1v-2.065a8.935 8.935 0 00-2-.712V17a1 1 0 001 1z" />
+                 </svg>
+               </div>
+               <div className="min-w-0 flex-1">
+                 <h1 className="text-sm sm:text-base lg:text-lg font-semibold text-purple-600 truncate">
+                   {assessment?.title || 'Assessment'}
+                 </h1>
+                 <p className="text-xs lg:text-sm text-gray-600 truncate">
+                   {assessment?.category || 'Healthcare'} | {assessment?.difficultyLevel || 'Advanced'}
+                 </p>
+               </div>
+             </div>
+             <div className="flex items-center space-x-2 lg:space-x-4">
+               <div className="text-right">
+                 <div className="text-sm sm:text-lg lg:text-2xl font-mono text-gray-900">{formatTime(timer)}</div>
+                 <div className="text-xs text-gray-500">Time</div>
+               </div>
+               <button
+                 onClick={handleEndAssessment}
+                 className="bg-orange-600 hover:bg-orange-700 text-white px-2 py-1 sm:px-3 sm:py-1 lg:px-4 lg:py-2 rounded-lg font-medium text-xs sm:text-sm lg:text-base whitespace-nowrap"
+               >
+                 End Assessment
+               </button>
+             </div>
+           </div>
+         </div>
+       </div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Video Chat Section */}
-          <div className="lg:col-span-2">
-            <div className="bg-white rounded-lg shadow-sm border p-6">
-              <h2 className="text-xl font-semibold mb-4">Video Chat</h2>
-              
-              <HeygenPlayer
-                streamUrl={streamUrl || 'webrtc://mock-stream'}
-                avatarSettings={assessment?.avatarConfig}
-                spokenText={spokenText}
-                isSpeaking={isSpeaking}
-                onError={(error) => {
-                  console.error('Player error:', error);
-                  setError(error.message);
-                }}
-                onReady={() => {
-                  console.log('Player ready');
-                }}
-                className="mb-6"
-              />
+       {/* Main Content */}
+       <div className="flex-1 flex min-h-0">
+         <div className="max-w-7xl mx-auto px-2 sm:px-4 lg:px-8 py-2 sm:py-4 w-full">
+           <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 sm:gap-4 lg:gap-8 h-[calc(100vh-200px)] sm:h-[calc(100vh-240px)] lg:h-[calc(100vh-280px)]">
+             {/* Transcript Panel (Left) */}
+             <div className="lg:col-span-1 min-h-0">
+               <div className="bg-white rounded-lg shadow-sm border p-2 sm:p-4 lg:p-6 h-full flex flex-col">
+                 <h2 className="text-base sm:text-lg lg:text-xl font-semibold mb-2 sm:mb-3 lg:mb-4 text-gray-900">Transcript</h2>
+                 
+                 {/* Messages */}
+                 <div className="flex-1 overflow-y-auto mb-2 sm:mb-3 lg:mb-4 space-y-1 sm:space-y-2 lg:space-y-3">
+                   {messages.map((message) => (
+                     <div
+                       key={message.id}
+                       className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}
+                     >
+                       <div className="flex items-start space-x-1 sm:space-x-2 max-w-full">
+                         {message.type === 'user' && (
+                           <div className="w-5 h-5 sm:w-6 sm:h-6 lg:w-8 lg:h-8 bg-purple-600 rounded-full flex items-center justify-center flex-shrink-0">
+                             <svg className="w-2.5 h-2.5 sm:w-3 sm:h-3 lg:w-4 lg:h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+                               <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
+                             </svg>
+                           </div>
+                         )}
+                         <div
+                           className={`max-w-[75%] sm:max-w-[70%] lg:max-w-xs px-2 py-1 sm:px-3 sm:py-2 lg:px-3 lg:py-2 rounded-lg ${
+                             message.type === 'user'
+                               ? 'bg-purple-600 text-white'
+                               : 'bg-gray-200 text-gray-800'
+                           }`}
+                         >
+                           <p className="text-xs sm:text-sm lg:text-sm break-words leading-relaxed">{message.text}</p>
+                           <p className="text-xs opacity-75 mt-1">
+                             {message.timestamp.toLocaleTimeString()}
+                           </p>
+                         </div>
+                       </div>
+                     </div>
+                   ))}
+                   <div ref={messagesEndRef} />
+                 </div>
+               </div>
+             </div>
 
-              {/* Error Display */}
-              {error && (
-                <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg mb-4">
-                  <strong>Error:</strong> {error}
-                </div>
-              )}
+             {/* Video Panel (Right) */}
+             <div className="lg:col-span-1 min-h-0">
+               <div className="bg-white rounded-lg shadow-sm border p-2 sm:p-4 lg:p-6 h-full flex flex-col">
+                 <div className="flex items-center justify-between mb-2 sm:mb-3 lg:mb-4">
+                   <div className="min-w-0 flex-1">
+                     <h2 className="text-base sm:text-lg lg:text-xl font-semibold text-gray-900 truncate">Dr. Jacob Jones</h2>
+                     <p className="text-xs lg:text-sm text-gray-600 truncate">Tone: Formal | Emotion: Excited</p>
+                   </div>
+                   <button
+                     onClick={() => navigate(`/assessment/${uuid}/progress`, { state: { sessionData } })}
+                     className="bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 lg:px-3 lg:py-1 rounded text-xs lg:text-sm flex items-center space-x-1 ml-2"
+                   >
+                     <svg className="w-3 h-3 lg:w-4 lg:h-4" fill="currentColor" viewBox="0 0 20 20">
+                       <path fillRule="evenodd" d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.338-3.123C2.493 12.767 2 11.434 2 10c0-3.866 3.582-7 8-7s8 3.134 8 7zM7 9H5v2h2V9zm8 0h-2v2h2V9zM9 9h2v2H9V9z" clipRule="evenodd" />
+                     </svg>
+                     <span className="hidden sm:inline">Switch to Text Chat</span>
+                   </button>
+                 </div>
+                 
+                 <div className="flex-1 relative min-h-0">
+                   <HeygenPlayer
+                     streamUrl={streamUrl}
+                     avatarSettings={assessment?.avatarConfig}
+                     spokenText={spokenText}
+                     isSpeaking={isSpeaking}
+                     onError={(error) => {
+                       console.error('Player error:', error);
+                       setError(error.message);
+                     }}
+                     onReady={() => {
+                       console.log('Player ready');
+                     }}
+                     className="w-full h-full"
+                   />
 
-              {/* Debug Info */}
-              {process.env.NODE_ENV === 'development' && (
-                <div className="bg-gray-100 border border-gray-300 text-gray-700 px-4 py-3 rounded-lg mb-4 text-sm">
-                  <strong>Debug Info:</strong><br />
-                  Token: {heygenToken ? '✅ Set' : '❌ Not set'}<br />
-                  Stream ID: {heygenStreamId ? '✅ Set' : '❌ Not set'}<br />
-                  Stream URL: {streamUrl || '❌ Not set'}
-                </div>
-              )}
-            </div>
-          </div>
+                   {/* Error Display */}
+                   {error && (
+                     <div className="absolute top-1 left-1 right-1 sm:top-2 sm:left-2 sm:right-2 lg:top-4 lg:left-4 lg:right-4 bg-red-100 border border-red-400 text-red-700 px-2 py-1 sm:px-2 sm:py-2 lg:px-4 lg:py-3 rounded-lg text-xs lg:text-sm">
+                       <strong>Error:</strong> {error}
+                     </div>
+                   )}
+                 </div>
+               </div>
+             </div>
+           </div>
+         </div>
+       </div>
 
-          {/* Chat Messages Section */}
-          <div className="lg:col-span-1">
-            <div className="bg-white rounded-lg shadow-sm border p-6 h-96 flex flex-col">
-              <h2 className="text-xl font-semibold mb-4">Chat History</h2>
-              
-              {/* Messages */}
-              <div className="flex-1 overflow-y-auto mb-4 space-y-3">
-                {messages.map((message) => (
-                  <div
-                    key={message.id}
-                    className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}
-                  >
-                    <div
-                      className={`max-w-xs px-3 py-2 rounded-lg ${
-                        message.type === 'user'
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-gray-200 text-gray-800'
-                      }`}
-                    >
-                      <p className="text-sm">{message.text}</p>
-                      <p className="text-xs opacity-75 mt-1">
-                        {message.timestamp.toLocaleTimeString()}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-                <div ref={messagesEndRef} />
-              </div>
+       {/* Bottom Input Bar */}
+       <div className="bg-white border-t border-gray-200 px-2 sm:px-4 lg:px-4 py-2 lg:py-3">
+         <div className="max-w-7xl mx-auto flex items-center space-x-2 lg:space-x-4">
+           {/* Left Side - Controls */}
+           <div className="flex items-center space-x-1 sm:space-x-2 lg:space-x-3">
+             <button className="p-1 lg:p-2 text-gray-500 hover:text-gray-700">
+               <svg className="w-4 h-4 lg:w-5 lg:h-5" fill="currentColor" viewBox="0 0 20 20">
+                 <path fillRule="evenodd" d="M4 5a2 2 0 00-2 2v8a2 2 0 002 2h12a2 2 0 002-2V7a2 2 0 00-2-2h-1.586a1 1 0 01-.707-.293l-1.121-1.121A2 2 0 0011.172 3H8.828a2 2 0 00-1.414.586L6.293 4.707A1 1 0 015.586 5H4zm6 9a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
+               </svg>
+             </button>
+             <button className="p-1 lg:p-2 text-gray-500 hover:text-gray-700">
+               <svg className="w-4 h-4 lg:w-5 lg:h-5" fill="currentColor" viewBox="0 0 20 20">
+                 <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
+               </svg>
+             </button>
+             <button className="p-1 lg:p-2 text-gray-500 hover:text-gray-700">
+               <svg className="w-4 h-4 lg:w-5 lg:h-5" fill="currentColor" viewBox="0 0 20 20">
+                 <path fillRule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.617.793L4.5 14H2a1 1 0 01-1-1V7a1 1 0 011-1h2.5l3.883-3.793a1 1 0 011.617.793zM12.293 7.293a1 1 0 011.414 0L15 8.586l1.293-1.293a1 1 0 111.414 1.414L16.414 10l1.293 1.293a1 1 0 01-1.414 1.414L15 11.414l-1.293 1.293a1 1 0 01-1.414-1.414L13.586 10l-1.293-1.293a1 1 0 010-1.414z" clipRule="evenodd" />
+               </svg>
+             </button>
+           </div>
 
-              {/* Message Input */}
-              <form onSubmit={handleSubmit} className="flex space-x-2">
-                <input
-                  type="text"
-                  value={inputMessage}
-                  onChange={(e) => setInputMessage(e.target.value)}
-                  placeholder="Type your message..."
-                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  disabled={!hasSentInitialHi}
-                />
-                <button
-                  type="submit"
-                  disabled={!inputMessage.trim() || !hasSentInitialHi}
-                  className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white px-4 py-2 rounded-lg font-medium transition-colors"
-                >
-                  Send
-                </button>
-              </form>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+           {/* Middle - Input Field */}
+           <div className="flex-1 min-w-0">
+             <form onSubmit={handleSubmit} className="flex items-center">
+               <input
+                 type="text"
+                 value={inputMessage}
+                 onChange={(e) => setInputMessage(e.target.value)}
+                 placeholder="Type your response"
+                 className="w-full px-2 sm:px-3 lg:px-4 py-1 sm:py-1.5 lg:py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent text-sm lg:text-base"
+                 disabled={!hasSentInitialHi}
+               />
+             </form>
+           </div>
+
+           {/* Right Side - Send Button */}
+           <button
+             onClick={() => handleSendMessage(inputMessage)}
+             disabled={!inputMessage.trim() || !hasSentInitialHi}
+             className="p-1 lg:p-2 bg-purple-600 text-white rounded-full hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed ml-2"
+           >
+             <svg className="w-4 h-4 lg:w-5 lg:h-5" fill="currentColor" viewBox="0 0 20 20">
+               <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
+             </svg>
+           </button>
+         </div>
+       </div>
+     </div>
+   );
 };
 
 export default VideoChatAssessment;

@@ -15,6 +15,7 @@ const AssessmentProgress = () => {
   const [currentQuestion, setCurrentQuestion] = useState('');
   const [userResponse, setUserResponse] = useState('');
   const [isResponding, setIsResponding] = useState(false);
+  const [chatSessionId, setChatSessionId] = useState(null);
 
   useEffect(() => {
     loadAssessmentData();
@@ -27,10 +28,35 @@ const AssessmentProgress = () => {
     }
   }, [assessment, sessionData]);
 
+  // Debug: Monitor currentQuestion changes
+  useEffect(() => {
+    console.log('🔄 currentQuestion state updated:', currentQuestion);
+  }, [currentQuestion]);
+
   const sendInitialHi = async () => {
     try {
+      console.log('sendInitialHi - assessment:', assessment);
+      console.log('sendInitialHi - assessment.questionsFileId:', assessment?.questionsFileId);
+      
+      // If questionsFileId is not available, fetch fresh assessment data
+      let questionsFileId = assessment?.questionsFileId;
+      if (!questionsFileId) {
+        console.log('questionsFileId not available, fetching fresh assessment data...');
+        const result = await assessmentService.getPublicAssessment(uuid);
+        if (result.success && result.data.questionsFileId) {
+          questionsFileId = result.data.questionsFileId;
+          setAssessment(result.data);
+          console.log('Fresh questionsFileId fetched:', questionsFileId);
+        }
+      }
+      
+      if (!questionsFileId) {
+        console.error('Could not get questionsFileId');
+        return;
+      }
+      
       const result = await assessmentService.sendInitialHi(
-        assessment.id, // course_id
+        questionsFileId, // course_id - use questions_file_id for AvatarAI API
         sessionData.userId || '6511534f6966f424d53bda75', // user_id with fallback
         sessionData.userName || 'Dnyaneshwar Naiknavare', // user_name with fallback
         sessionData.avatarConfig?.avatarPersona === 'dr-jane-doe' ? 'Dr. Jane Doe' : 'Dr. Jacob Jones', // doctor_name
@@ -41,10 +67,32 @@ const AssessmentProgress = () => {
       );
       
       if (result.success) {
-        const aiResponse = result.data.reply;
-        if (aiResponse) {
+        // Set the chat session ID for maintaining conversation context
+        if (result.chatSessionId) {
+          setChatSessionId(result.chatSessionId);
+          console.log('✅ Chat session ID set:', result.chatSessionId);
+        }
+        
+        // Handle the initial AI response - prioritize next_question for display
+        const nextQuestion = result.data.next_question;
+        const aiResponse = result.data.reply || result.data.response;
+        
+        console.log('Initial AvatarAI Response Analysis:', {
+          nextQuestion: nextQuestion,
+          aiResponse: aiResponse ? aiResponse.substring(0, 100) + '...' : null,
+          fullResponse: result.data
+        });
+        
+        // Always use next_question if available, otherwise use aiResponse
+        if (nextQuestion) {
+          console.log('✅ Setting initial question to next_question:', nextQuestion);
+          setCurrentQuestion(nextQuestion);
+        } else if (aiResponse) {
+          console.log('⚠️ No initial next_question found, using aiResponse:', aiResponse.substring(0, 100) + '...');
           setCurrentQuestion(aiResponse);
-          console.log('Initial AI Response:', aiResponse);
+        } else {
+          console.log('❌ No initial response content found');
+          setCurrentQuestion('Welcome! I\'m here to guide you through this assessment. Please respond to my questions.');
         }
       } else {
         console.error('Failed to send initial hi:', result.error);
@@ -56,23 +104,30 @@ const AssessmentProgress = () => {
 
   const loadAssessmentData = async () => {
     try {
+      // Clear any cached assessment data to force fresh fetch
+      sessionStorage.removeItem(`assessment_${uuid}`);
+      
       // Get assessment data from location state or fetch it
       const stateData = location.state?.sessionData;
-      if (stateData) {
-        setSessionData(stateData);
-        setAssessment(stateData.assessment);
-      } else {
+             if (stateData) {
+         setSessionData(stateData);
+         setAssessment(stateData.assessment);
+         console.log('Assessment from location state:', stateData.assessment);
+         console.log('questionsFileId from location state:', stateData.assessment?.questionsFileId);
+       } else {
         // Try to get session data from session storage
         const storedSession = sessionStorage.getItem(`assessmentSession_${uuid}`);
         if (storedSession) {
           const parsedSession = JSON.parse(storedSession);
           setSessionData(parsedSession);
           
-          // Fetch assessment details
-          const result = await assessmentService.getPublicAssessment(uuid);
-          if (result.success) {
-            setAssessment(result.data);
-          }
+                     // Fetch assessment details with cache busting
+           const result = await assessmentService.getPublicAssessment(uuid);
+           if (result.success) {
+             setAssessment(result.data);
+             console.log('Fresh assessment data loaded:', result.data);
+             console.log('questionsFileId from API:', result.data.questionsFileId);
+           }
         } else {
           // No session data found, redirect back to mode selection
           toast.error('No active session found. Please start the assessment again.');
@@ -101,19 +156,38 @@ const AssessmentProgress = () => {
 
   const handleSendResponse = async () => {
     if (!userResponse.trim()) {
-      toast.error('Please enter your response');
       return;
     }
 
     setIsResponding(true);
     try {
+      console.log('handleSendResponse - assessment.questionsFileId:', assessment?.questionsFileId);
+      
+      // If questionsFileId is not available, fetch fresh assessment data
+      let questionsFileId = assessment?.questionsFileId;
+      if (!questionsFileId) {
+        console.log('questionsFileId not available, fetching fresh assessment data...');
+        const result = await assessmentService.getPublicAssessment(uuid);
+        if (result.success && result.data.questionsFileId) {
+          questionsFileId = result.data.questionsFileId;
+          setAssessment(result.data);
+          console.log('Fresh questionsFileId fetched:', questionsFileId);
+        }
+      }
+      
+      if (!questionsFileId) {
+        console.error('Could not get questionsFileId');
+        toast.error('Failed to get assessment data');
+        return;
+      }
+      
       // Call AvatarAI API directly from frontend
       const result = await assessmentService.callAvatarAIDirectly(
         userResponse, // user_reply
-        assessment.id, // course_id
+        questionsFileId, // course_id - use questions_file_id for AvatarAI API
         sessionData.userId || '6511534f6966f424d53bda75', // user_id with fallback
         sessionData.userName || 'Dnyaneshwar Naiknavare', // user_name with fallback
-        `session_${Date.now()}`, // chat_session_id
+        chatSessionId || `session_${Date.now()}`, // chat_session_id - use existing or create new
         sessionData.avatarConfig?.avatarPersona === 'dr-jane-doe' ? 'Dr. Jane Doe' : 'Dr. Jacob Jones', // doctor_name
         sessionData.avatarConfig?.avatarPersona === 'dr-jane-doe' ? '/assets/images/doctor2.png' : '/assets/images/doctor1.png', // doctor_avatar
         sessionData.avatarConfig?.voiceTone || 'Formal', // doctor_tone
@@ -126,12 +200,32 @@ const AssessmentProgress = () => {
         toast.success('Response sent to AvatarAI');
         setUserResponse('');
         
-        // Handle the AI response
-        const aiResponse = result.data.reply;
-        if (aiResponse) {
-          console.log('AI Response:', aiResponse);
-          // You can display the AI response or handle it as needed
+        // Update chat session ID if a new one is returned
+        if (result.sessionId) {
+          setChatSessionId(result.sessionId);
+          console.log('✅ Updated chat session ID:', result.sessionId);
+        }
+        
+        // Handle the AI response - prioritize next_question for display
+        const nextQuestion = result.data.next_question;
+        const aiResponse = result.data.reply || result.data.response;
+        
+        console.log('AvatarAI Response Analysis:', {
+          nextQuestion: nextQuestion,
+          aiResponse: aiResponse ? aiResponse.substring(0, 100) + '...' : null,
+          fullResponse: result.data
+        });
+        
+        // Always use next_question if available, otherwise use aiResponse
+        if (nextQuestion) {
+          console.log('✅ Setting current question to next_question:', nextQuestion);
+          setCurrentQuestion(nextQuestion);
+        } else if (aiResponse) {
+          console.log('⚠️ No next_question found, using aiResponse:', aiResponse.substring(0, 100) + '...');
           setCurrentQuestion(aiResponse);
+        } else {
+          console.log('❌ No response content found');
+          setCurrentQuestion('Thank you for your response. Please wait for the next question.');
         }
       } else {
         toast.error('Failed to send response to AvatarAI');
@@ -205,12 +299,20 @@ const AssessmentProgress = () => {
                 <p className="text-sm text-gray-500">Session ID</p>
                 <p className="text-sm font-mono text-gray-900">{sessionData.sessionId}</p>
               </div>
-              <button
-                onClick={handleEndAssessment}
-                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-              >
-                End Assessment
-              </button>
+              <div className="flex space-x-2">
+                <button
+                  onClick={() => navigate(`/assessment/${uuid}/session`, { state: { sessionData } })}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Switch to Video Chat
+                </button>
+                <button
+                  onClick={handleEndAssessment}
+                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                >
+                  End Assessment
+                </button>
+              </div>
             </div>
           </div>
         </div>

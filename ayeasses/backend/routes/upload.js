@@ -161,6 +161,30 @@ router.post('/gcp/upload', authenticateToken, upload.single('file'), async (req,
       // Don't fail the upload if AvatarAI API fails
     }
 
+    // Send to AvatarAI QnA API
+    try {
+      const avatarAIQnAPayload = {
+        course_id: fileId,
+        course_document: uploadResult.url,
+        context: textExtractionResult.extractedText || 'Course content uploaded for QnA processing'
+      };
+
+      logger.info('Sending to AvatarAI QnA API:', avatarAIQnAPayload);
+
+      const avatarAIQnAResponse = await axios.post('https://avatarai.awwwex.com/v1/agents/qna', avatarAIQnAPayload, {
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
+      });
+
+      logger.info('AvatarAI QnA API response:', avatarAIQnAResponse.data);
+
+    } catch (avatarAIQnAError) {
+      logger.error('AvatarAI QnA API call failed:', avatarAIQnAError.response?.data || avatarAIQnAError.message);
+      // Don't fail the upload if AvatarAI QnA API fails
+    }
+
     logger.info(`Assessment question file uploaded to GCP: ${uploadResult.url} by user: ${req.user.email}`);
 
     res.json({
@@ -323,6 +347,30 @@ router.post('/assessment-questions', authenticateToken, upload.single('questions
     } catch (avatarAIError) {
       logger.error('AvatarAI API call failed:', avatarAIError.response?.data || avatarAIError.message);
       // Don't fail the upload if AvatarAI API fails
+    }
+
+    // Send to AvatarAI QnA API
+    try {
+      const avatarAIQnAPayload = {
+        course_id: fileId,
+        course_document: uploadResult.url,
+        context: textExtractionResult.extractedText || 'Course content uploaded for QnA processing'
+      };
+
+      logger.info('Sending to AvatarAI QnA API:', avatarAIQnAPayload);
+
+      const avatarAIQnAResponse = await axios.post('https://avatarai.awwwex.com/v1/agents/qna', avatarAIQnAPayload, {
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
+      });
+
+      logger.info('AvatarAI QnA API response:', avatarAIQnAResponse.data);
+
+    } catch (avatarAIQnAError) {
+      logger.error('AvatarAI QnA API call failed:', avatarAIQnAError.response?.data || avatarAIQnAError.message);
+      // Don't fail the upload if AvatarAI QnA API fails
     }
 
     logger.info(`Assessment question file uploaded to GCP: ${uploadResult.url} by user: ${req.user.email}`);
