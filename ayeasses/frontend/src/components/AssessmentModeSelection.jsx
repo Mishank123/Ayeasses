@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 // Using simple SVG icons instead of Heroicons
 import assessmentService from '../services/assessmentService';
@@ -10,13 +10,47 @@ const AssessmentModeSelection = () => {
   const location = useLocation();
   const [assessment, setAssessment] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [selectedMode, setSelectedMode] = useState('video');
+  const [selectedMode, setSelectedMode] = useState('text-assessment');
   const [startingSession, setStartingSession] = useState(false);
   const avatarSettings = location.state?.avatarSettings;
 
   useEffect(() => {
     fetchAssessment();
   }, [uuid]);
+
+  // Auto-route based on assessment type
+  useEffect(() => {
+    if (assessment && !loading) {
+      console.log('Assessment loaded:', {
+        id: assessment.id,
+        title: assessment.title,
+        assessmentType: assessment.assessmentType,
+        type: typeof assessment.assessmentType
+      });
+      
+      // If assessment type is 'text', automatically go to text assessment
+      if (assessment.assessmentType === 'text') {
+        console.log('Assessment type is text, auto-routing to text assessment');
+        handleAutoStartAssessment('text-assessment');
+      }
+      // If assessment type is 'video', automatically go to video assessment
+      else if (assessment.assessmentType === 'video') {
+        console.log('Assessment type is video, auto-routing to video assessment');
+        handleAutoStartAssessment('video');
+      }
+      // For other types or mixed, show mode selection (current behavior)
+      else {
+        console.log('Assessment type is not text or video, showing mode selection');
+        console.log('Assessment type value:', assessment.assessmentType);
+        console.log('Assessment type comparison:', {
+          isText: assessment.assessmentType === 'text',
+          isVideo: assessment.assessmentType === 'video',
+          type: typeof assessment.assessmentType,
+          length: assessment.assessmentType?.length
+        });
+      }
+    }
+  }, [assessment, loading]);
 
   const fetchAssessment = async () => {
     try {
@@ -34,6 +68,126 @@ const AssessmentModeSelection = () => {
       setLoading(false);
     }
   };
+
+  const handleAutoStartAssessment = useCallback(async (mode) => {
+    setStartingSession(true);
+    try {
+      // Get avatar configuration from session storage or props
+      let avatarConfig = avatarSettings;
+      if (!avatarConfig && assessment?.id) {
+        const storedConfig = sessionStorage.getItem(`avatarConfig_${assessment.id}`);
+        if (storedConfig) {
+          avatarConfig = JSON.parse(storedConfig);
+        }
+      }
+
+      console.log('Auto-starting assessment with mode:', mode);
+      console.log('Avatar config:', avatarConfig);
+      
+      // Start assessment with frontend Heygen integration (pass avatar config directly)
+      const result = await assessmentService.startAssessment(
+        assessment?.id || uuid, 
+        mode, 
+        avatarConfig
+      );
+      
+      if (result.success) {
+        console.log('Assessment started successfully:', result.data);
+        
+        // Store session data in session storage
+        sessionStorage.setItem(`assessmentSession_${assessment?.id || uuid}`, JSON.stringify({
+          sessionId: result.data.sessionId,
+          heygenSessionId: result.data.heygenSessionId,
+          streamUrl: result.data.streamUrl,
+          messageId: result.data.messageId,
+          mode: mode,
+          avatarConfig: result.data.avatarConfig
+        }));
+
+        toast.success('Assessment session started successfully!');
+        
+        // Navigate to the appropriate assessment page based on mode
+        if (mode === 'video') {
+          navigate(`/assessment/${uuid}/session`, {
+            state: {
+              avatarSettings: avatarConfig,
+              mode: mode,
+              sessionData: result.data
+            }
+          });
+        } else if (mode === 'text-assessment') {
+          navigate(`/assessment/${uuid}/text`, {
+            state: {
+              avatarSettings: avatarConfig,
+              mode: mode,
+              sessionData: result.data
+            }
+          });
+        } else {
+          navigate(`/assessment/${uuid}/progress`, {
+            state: {
+              avatarSettings: avatarConfig,
+              mode: mode,
+              sessionData: result.data
+            }
+          });
+        }
+      } else {
+        // Check if it's an existing session error
+        if (result.error && result.error.includes('already have an active session')) {
+          console.log('Using existing session');
+          
+          // Extract existing session data from error response
+          const existingSessionData = {
+            sessionId: result.sessionId,
+            streamUrl: result.streamUrl,
+            mode: mode,
+            avatarConfig: avatarConfig
+          };
+          
+          // Store existing session data
+          sessionStorage.setItem(`assessmentSession_${assessment?.id || uuid}`, JSON.stringify(existingSessionData));
+          
+          toast.success('Resuming existing assessment session!');
+          
+          // Navigate to the appropriate assessment page based on mode
+          if (mode === 'video') {
+            navigate(`/assessment/${uuid}/session`, {
+              state: {
+                avatarSettings: avatarConfig,
+                mode: mode,
+                sessionData: existingSessionData
+              }
+            });
+          } else if (mode === 'text-assessment') {
+            navigate(`/assessment/${uuid}/text`, {
+              state: {
+                avatarSettings: avatarConfig,
+                mode: mode,
+                sessionData: existingSessionData
+              }
+            });
+          } else {
+            navigate(`/assessment/${uuid}/progress`, {
+              state: {
+                avatarSettings: avatarConfig,
+                mode: mode,
+                sessionData: existingSessionData
+              }
+            });
+          }
+        } else {
+          console.error('Failed to start assessment:', result.error);
+          toast.error('Failed to start assessment session. Please try again.');
+        }
+      }
+    } catch (error) {
+      console.error('Error starting assessment:', error);
+      toast.error('Failed to start assessment session. Please try again.');
+    } finally {
+      setStartingSession(false);
+    }
+  }, [assessment, uuid, avatarSettings, navigate]);
 
   const handleStartAssessment = async () => {
     setStartingSession(true);
@@ -81,6 +235,14 @@ const AssessmentModeSelection = () => {
               sessionData: result.data
             }
           });
+        } else if (selectedMode === 'text-assessment') {
+          navigate(`/assessment/${uuid}/text`, {
+            state: {
+              avatarSettings: avatarConfig,
+              mode: selectedMode,
+              sessionData: result.data
+            }
+          });
         } else {
           navigate(`/assessment/${uuid}/progress`, {
             state: {
@@ -117,6 +279,14 @@ const AssessmentModeSelection = () => {
                 sessionData: existingSessionData
               }
             });
+          } else if (selectedMode === 'text-assessment') {
+            navigate(`/assessment/${uuid}/text`, {
+              state: {
+                avatarSettings: avatarConfig,
+                mode: selectedMode,
+                sessionData: existingSessionData
+              }
+            });
           } else {
             navigate(`/assessment/${uuid}/progress`, {
               state: {
@@ -143,10 +313,15 @@ const AssessmentModeSelection = () => {
     navigate('/my-assessment');
   };
 
-  if (loading) {
+  if (loading || startingSession) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">
+            {startingSession ? 'Starting assessment...' : 'Loading assessment...'}
+          </p>
+        </div>
       </div>
     );
   }
@@ -163,6 +338,19 @@ const AssessmentModeSelection = () => {
           >
             Back to Dashboard
           </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Don't show mode selection if assessment type is specifically 'text' or 'video'
+  // These will be auto-routed
+  if (assessment.assessmentType === 'text' || assessment.assessmentType === 'video') {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Preparing your assessment...</p>
         </div>
       </div>
     );
@@ -198,7 +386,29 @@ const AssessmentModeSelection = () => {
           </p>
 
           {/* Mode Selection */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            {/* Text Assessment */}
+            <div 
+              className={`p-6 rounded-lg border-2 cursor-pointer transition-all ${
+                selectedMode === 'text-assessment' 
+                  ? 'border-blue-500 bg-blue-50' 
+                  : 'border-gray-200 hover:border-gray-300'
+              }`}
+              onClick={() => setSelectedMode('text-assessment')}
+            >
+              <div className="flex items-center justify-center mb-4">
+                <svg className="w-12 h-12 text-gray-600" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clipRule="evenodd" />
+                </svg>
+              </div>
+              <h3 className="text-xl font-semibold text-gray-900 mb-2 text-center">
+                Text Assessment
+              </h3>
+              <p className="text-gray-600 text-center">
+                Answer questions in a traditional text-based format with multiple choice and descriptive answers.
+              </p>
+            </div>
+
             {/* Text Chat Simulation */}
             <div 
               className={`p-6 rounded-lg border-2 cursor-pointer transition-all ${

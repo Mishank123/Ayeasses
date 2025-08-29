@@ -24,14 +24,12 @@ const navigation = [
   { name: 'Settings', href: '/settings', icon: Settings },
 ];
 
-const Sidebar = ({ isOpen, onClose, onCollapse }) => {
+const Sidebar = ({ isOpen, onClose, onCollapse, isCollapsed }) => {
   const location = useLocation();
   const { user } = useAuth();
-  const [isCollapsed, setIsCollapsed] = useState(false);
 
   const toggleCollapse = () => {
     const newCollapsedState = !isCollapsed;
-    setIsCollapsed(newCollapsedState);
     if (onCollapse) {
       onCollapse(newCollapsedState);
     }

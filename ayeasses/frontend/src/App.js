@@ -11,6 +11,7 @@ import AvatarPersonalization from './components/AvatarPersonalization';
 import AssessmentModeSelection from './components/AssessmentModeSelection';
 import AssessmentProgress from './components/AssessmentProgress';
 import VideoChatAssessment from './components/VideoChatAssessment';
+import TextAssessment from './components/TextAssessment';
 import Layout from './components/Layout/Layout';
 import './index.css';
 
@@ -53,7 +54,17 @@ const AppRoutes = () => {
         element={
           <ProtectedRoute>
             <Layout>
-              <AyeAssess />
+              <Dashboard />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/dashboard"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <Dashboard />
             </Layout>
           </ProtectedRoute>
         }
@@ -98,6 +109,14 @@ const AppRoutes = () => {
         />
 
         <Route
+          path="/assessment/:uuid"
+          element={
+            <ProtectedRoute>
+              <AssessmentModeSelection />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/assessment/:uuid/mode"
           element={
             <ProtectedRoute>
@@ -121,19 +140,15 @@ const AppRoutes = () => {
             </ProtectedRoute>
           }
         />
-       <Route
-         path="/assessment/:id"
-         element={
-           <ProtectedRoute>
-             <Layout>
-               <div className="p-6">
-                 <h1 className="text-2xl font-bold text-gray-900">Assessment Details</h1>
-                 <p className="text-gray-600">Assessment details page - developer will provide</p>
-               </div>
-             </Layout>
-           </ProtectedRoute>
-         }
-       />
+        <Route
+          path="/assessment/:uuid/text"
+          element={
+            <ProtectedRoute>
+              <TextAssessment />
+            </ProtectedRoute>
+          }
+        />
+       
       <Route
         path="/help"
         element={

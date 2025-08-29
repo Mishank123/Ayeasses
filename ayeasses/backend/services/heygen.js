@@ -61,6 +61,7 @@ class HeygenService {
       return {
         success: true,
         sessionId: response.data.session_id,
+        streamUrl: response.data.url, // Use the url field from streaming.new
         sessionData: response.data
       };
 
@@ -79,15 +80,16 @@ class HeygenService {
       logger.warn('Creating enhanced mock streaming session due to API error');
       
       const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      const mockStreamUrl = `webrtc://heygen-mock.livekit.cloud/${sessionId}`;
+      const mockStreamUrl = `wss://heygen-feapbkvq.livekit.cloud/${sessionId}`;
       
       return {
         success: true,
         sessionId: sessionId,
+        streamUrl: mockStreamUrl, // Use the url field format
         sessionData: {
           session_id: sessionId,
           status: 'created',
-          stream_url: mockStreamUrl,
+          url: mockStreamUrl,
           mock: true
         },
         mock: true,
@@ -139,14 +141,14 @@ class HeygenService {
       // Enhanced mock stream URL for development
       logger.warn('Starting enhanced mock streaming session due to API error');
       
-      const mockStreamUrl = `webrtc://heygen-mock.livekit.cloud/${sessionId}`;
+      const mockStreamUrl = `wss://heygen-feapbkvq.livekit.cloud/${sessionId}`;
       
       return {
         success: true,
         streamUrl: mockStreamUrl,
         sessionId: sessionId,
         sessionData: {
-          stream_url: mockStreamUrl,
+          url: mockStreamUrl,
           status: 'started',
           mock: true
         },
@@ -310,7 +312,7 @@ class HeygenService {
       return {
         success: true,
         sessionId: sessionId,
-        streamUrl: startResult.streamUrl,
+        streamUrl: sessionResult.streamUrl, // Use the url from session creation
         messageId: messageId,
         assessmentId: assessmentId
       };

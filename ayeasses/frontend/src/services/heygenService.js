@@ -167,6 +167,9 @@ class HeygenService {
       
       this.accessToken = token;
       
+      console.log('🔍 Returning access token - Type:', typeof this.accessToken);
+      console.log('🔍 Returning access token - Value:', this.accessToken);
+      
       return {
         success: true,
         accessToken: this.accessToken,
@@ -241,13 +244,17 @@ class HeygenService {
       // Extract session_id as stream_id from the response (API returns data nested under response.data.data)
       const sessionData = response.data.data || response.data;
       this.streamId = sessionData.session_id;
-      this.realtimeEndpoint = sessionData.realtime_endpoint;
+      this.streamUrl = sessionData.url; // Use url field instead of realtime_endpoint
       this.iceServers = sessionData.ice_servers;
+      
+      // Extract access_token from the response - it's nested under response.data.data.access_token
+      const accessToken = response.data.data?.access_token || response.data.access_token;
       
       console.log('🔍 Extracted session data:', {
         streamId: this.streamId,
-        realtimeEndpoint: this.realtimeEndpoint,
-        iceServers: this.iceServers ? 'Present' : 'Missing'
+        streamUrl: this.streamUrl,
+        iceServers: this.iceServers ? 'Present' : 'Missing',
+        accessToken: accessToken ? 'Present' : 'Missing'
       });
       
       if (!this.streamId) {
@@ -258,9 +265,10 @@ class HeygenService {
       return {
         success: true,
         streamId: this.streamId,
-        realtimeEndpoint: this.realtimeEndpoint,
+        streamUrl: this.streamUrl, // Use url field instead of realtime_endpoint
         iceServers: this.iceServers,
-        sessionData: sessionData
+        sessionData: sessionData,
+        accessToken: accessToken // Include the access token from streaming.new response
       };
     } catch (error) {
       console.error('❌ Heygen streaming session creation error - Full error:', error);
@@ -367,6 +375,15 @@ class HeygenService {
       console.error('Heygen streaming start error - Error response status:', error.response?.status);
       console.error('Heygen streaming start error - Error config:', error.config);
       
+      // Handle specific session state errors
+      if (error.response?.data?.code === 10002 && error.response?.data?.message?.includes('invalid session state')) {
+        console.warn('⚠️ Session is already in connecting/active state, skipping start call');
+        return {
+          success: true,
+          streamData: { message: 'Session already active' }
+        };
+      }
+      
       // Check if it's a network error
       if (error.code === 'NETWORK_ERROR') {
         console.error('Network error - check if Heygen API is accessible');
@@ -430,6 +447,67 @@ class HeygenService {
     }
   }
 
+  // Direct streaming.new API call to get URL for video tag
+  async getDirectStreamUrl(params) {
+    try {
+      console.log('🔍 Getting direct stream URL from /streaming.new API');
+
+      // Step 1: Create streaming token (get access_token for authentication)
+      const tokenResult = await this.createStreamingToken();
+      if (!tokenResult.success) {
+        throw new Error('Failed to create streaming token');
+      }
+
+      // Step 2: Call /streaming.new directly to get the URL and access_token
+      const sessionResult = await this.createStreamingSession({
+        avatarName: params.avatarName,
+        quality: params.quality,
+        voiceSettings: params.voiceSettings
+      });
+      if (!sessionResult.success) {
+        throw new Error('Failed to create streaming session');
+      }
+
+      // Step 3: Start streaming to make the LiveKit room available
+      console.log('🔍 Starting streaming session to activate LiveKit room...');
+      
+      // Add a small delay to ensure session is ready
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      const startResult = await this.startStreaming(sessionResult.streamId, params.avatarName);
+      if (!startResult.success) {
+        throw new Error('Failed to start streaming session');
+      }
+
+      console.log('✅ Direct stream URL obtained:', sessionResult.streamUrl);
+      console.log('🔍 Session result data:', sessionResult.sessionData);
+      
+      // Use the access_token from the streaming.new API response
+      const accessToken = sessionResult.accessToken;
+      
+      console.log('🔍 Using access_token from streaming.new API response:', accessToken ? 'Yes' : 'No');
+      if (accessToken) {
+        console.log('🔍 Access token preview:', accessToken.substring(0, 50) + '...');
+        console.log('🔍 Access token type:', typeof accessToken);
+      }
+
+      return {
+        success: true,
+        streamUrl: sessionResult.streamUrl, // Direct URL from streaming.new
+        sessionId: sessionResult.streamId,
+        accessToken: accessToken, // Use access token from streaming.new response
+        iceServers: sessionResult.iceServers
+      };
+
+    } catch (error) {
+      console.error('Error getting direct stream URL:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
   // Complete streaming flow following the correct order
   async startAssessmentStreaming(params) {
     try {
@@ -477,16 +555,25 @@ class HeygenService {
         }
       }
 
-      return {
+      const result = {
         success: true,
         sessionId: sessionResult.streamId,
-        streamUrl: sessionResult.realtimeEndpoint,  // Changed from realtimeEndpoint to streamUrl
+        streamUrl: sessionResult.streamUrl,  // Use streamUrl instead of realtimeEndpoint
         accessToken: tokenResult.accessToken,
         realtimeEndpoint: sessionResult.realtimeEndpoint,
         iceServers: sessionResult.iceServers,
         taskId: taskId,
         assessmentId: params.assessmentId
       };
+
+      console.log('✅ startAssessmentStreaming returning:', {
+        success: result.success,
+        sessionId: result.sessionId,
+        streamUrl: result.streamUrl,
+        accessToken: result.accessToken ? 'Present' : 'Missing'
+      });
+
+      return result;
 
     } catch (error) {
       console.error('Error in complete Heygen streaming flow:', error);
@@ -566,6 +653,29 @@ class HeygenService {
   // Get current access token
   getAccessToken() {
     return this.accessToken;
+  }
+
+  // Ensure LiveKit connection is ready after sending text
+  async ensureLiveKitConnection(streamId, streamUrl, accessToken) {
+    try {
+      console.log('🔍 Ensuring LiveKit connection is ready...');
+      
+      // Add a small delay to ensure session is stable
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Check if we need to restart streaming (only if session is not already active)
+      const startResult = await this.startStreaming(streamId);
+      if (!startResult.success) {
+        console.warn('Warning: Failed to restart streaming for LiveKit connection');
+        return false;
+      }
+      
+      console.log('✅ LiveKit connection should be ready');
+      return true;
+    } catch (error) {
+      console.error('Error ensuring LiveKit connection:', error);
+      return false;
+    }
   }
 }
 

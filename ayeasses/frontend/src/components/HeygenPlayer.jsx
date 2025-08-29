@@ -1,339 +1,302 @@
-import React, { useEffect, useRef, useState } from 'react';
-import StreamingAvatar from '@heygen/streaming-avatar';
+import React, { useEffect, useRef, useState } from "react";
+import {
+  Room,
+  RoomEvent,
+  RemoteVideoTrack,
+  RemoteAudioTrack
+} from "livekit-client";
 
-const HeygenPlayer = ({ streamUrl, onError, onReady, avatarSettings, spokenText, isSpeaking }) => {
+const HeygenPlayer = ({ streamUrl, accessToken, onReady }) => {
   const videoRef = useRef(null);
-  const avatarRef = useRef(null);
+  const roomRef = useRef(null);
+  const connectionRef = useRef({ 
+    isConnecting: false, 
+    isConnected: false, 
+    currentUrl: null,
+    hasInitialized: false 
+  });
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [isVideoEnabled, setIsVideoEnabled] = useState(true);
   const [isAudioEnabled, setIsAudioEnabled] = useState(true);
-  const [volume, setVolume] = useState(80);
-  const [avatarInstance, setAvatarInstance] = useState(null);
+
+  // Debug logging for props
+  console.log('🔍 HeygenPlayer props:', {
+    streamUrl: streamUrl ? `${streamUrl.substring(0, 50)}...` : 'None',
+    accessToken: accessToken ? `${typeof accessToken} - ${accessToken.substring(0, 20)}...` : 'None',
+    hasStreamUrl: !!streamUrl,
+    hasAccessToken: !!accessToken
+  });
 
   useEffect(() => {
-    if (!streamUrl) {
-      setError('No stream URL provided');
-      setIsLoading(false);
+    console.log('🔍 HeygenPlayer useEffect triggered:', {
+      streamUrl: streamUrl ? 'Present' : 'Missing',
+      accessToken: accessToken ? 'Present' : 'Missing'
+    });
+    
+    if (!streamUrl || !accessToken) {
+      console.log('🔍 Missing required props, skipping connection');
       return;
     }
 
-    const initializePlayer = async () => {
+    const connection = connectionRef.current;
+    
+    // Prevent multiple initializations for the same URL
+    if (connection.hasInitialized && connection.currentUrl === streamUrl && connection.isConnected) {
+      console.log('Already connected to this URL, skipping...');
+      return;
+    }
+    
+    // Prevent connection if already connecting
+    if (connection.isConnecting) {
+      console.log('Connection already in progress, skipping...');
+      return;
+    }
+    
+    // Check if room is already in a connecting state
+    if (roomRef.current && roomRef.current.connectionState === 'connecting') {
+      console.log('Room already connecting, skipping...');
+      return;
+    }
+
+    // Only clean up if we're connecting to a different URL
+    if (roomRef.current && connection.currentUrl !== streamUrl) {
+      console.log('Cleaning up existing connection for different URL...');
+      roomRef.current.disconnect();
+      roomRef.current = null;
+      connection.isConnected = false;
+      connection.currentUrl = null;
+    }
+
+    connection.isConnecting = true;
+    connection.isConnected = false;
+    connection.currentUrl = streamUrl;
+    connection.hasInitialized = true;
+
+    const room = new Room();
+    roomRef.current = room;
+
+    const setup = async () => {
       try {
-        setIsLoading(true);
-        setError(null);
+        console.log('Connecting to LiveKit room:', streamUrl);
+        console.log('Access token:', accessToken ? `${accessToken.substring(0, 50)}...` : 'None');
+        
+        // Validate URL format
+        if (!streamUrl.startsWith('wss://')) {
+          throw new Error('Invalid LiveKit URL format. Expected wss:// URL');
+        }
+        
+        await room.connect(streamUrl, accessToken, { 
+          autoSubscribe: true,
+          timeout: 30000, // 30 second timeout
+          adaptiveStream: true,
+          dynacast: true,
+          publishDefaults: {
+            simulcast: true,
+            videoSimulcastLayers: [
+              { width: 320, height: 180, fps: 15 },
+              { width: 640, height: 360, fps: 30 },
+              { width: 1280, height: 720, fps: 30 }
+            ]
+          }
+        });
+        
+        // Wait a moment for room to stabilize
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        connection.isConnected = true;
+        connection.isConnecting = false;
+        console.log('✅ LiveKit connection established');
 
-        // For WebRTC streams, use the official Heygen SDK
-        if (streamUrl.startsWith('wss://')) {
-          console.log('Initializing Heygen streaming avatar with WebSocket URL:', streamUrl);
-          
-          // Convert WebSocket URL to proper format for SDK
-          const streamUrlForSDK = streamUrl.replace('wss://', 'webrtc://');
-          console.log('Converted stream URL for SDK:', streamUrlForSDK);
-          
-          // Create streaming avatar instance
-          const avatar = new StreamingAvatar({
-            container: avatarRef.current,
-            streamUrl: streamUrlForSDK,
-            onReady: () => {
-              console.log('Heygen avatar ready');
-              setIsLoading(false);
-              setAvatarInstance(avatar);
-              if (onReady) onReady();
-            },
-            onError: (err) => {
-              console.error('Heygen avatar error:', err);
-              setError('Failed to load avatar stream');
-              setIsLoading(false);
-              if (onError) onError(err);
-            }
-          });
+        // Handle tracks properly
+        room.on(RoomEvent.TrackSubscribed, (track) => {
+          console.log('Track subscribed:', track.kind);
+          if (track.kind === "video" && videoRef.current) {
+            track.attach(videoRef.current);
+          }
+          if (track.kind === "audio" && videoRef.current) {
+            track.attach(videoRef.current);
+          }
 
-          // Start the avatar
-          await avatar.start();
-          
-        } else if (streamUrl.startsWith('webrtc://')) {
-          console.log('Initializing Heygen streaming avatar with WebRTC URL:', streamUrl);
-          
-          // Create streaming avatar instance
-          const avatar = new StreamingAvatar({
-            container: avatarRef.current,
-            streamUrl: streamUrl,
-            onReady: () => {
-              console.log('Heygen avatar ready');
-              setIsLoading(false);
-              setAvatarInstance(avatar);
-              if (onReady) onReady();
-            },
-            onError: (err) => {
-              console.error('Heygen avatar error:', err);
-              setError('Failed to load avatar stream');
-              setIsLoading(false);
-              if (onError) onError(err);
-            }
-          });
-
-          // Start the avatar
-          await avatar.start();
-          
-        } else if (streamUrl.startsWith('rtmp://')) {
-          // RTMP stream - might need a different player
-          console.log('RTMP stream URL:', streamUrl);
           setIsLoading(false);
           if (onReady) onReady();
-        } else {
-          // Regular video URL
-          if (videoRef.current) {
-            videoRef.current.src = streamUrl;
-            videoRef.current.load();
-            
-            videoRef.current.onloadeddata = () => {
-              setIsLoading(false);
-              if (onReady) onReady();
-            };
-            
-            videoRef.current.onerror = (e) => {
-              console.error('Video error:', e);
-              setError('Failed to load video stream');
-              setIsLoading(false);
-              if (onError) onError(e);
-            };
+        });
+
+        room.on(RoomEvent.Disconnected, () => {
+          console.log('LiveKit room disconnected');
+          connection.isConnected = false;
+          connection.currentUrl = null;
+          connection.hasInitialized = false; // Allow reconnection
+        });
+
+        room.on(RoomEvent.ConnectionStateChanged, (state) => {
+          console.log('LiveKit connection state changed:', state);
+          
+          // Safe logging with null checks
+          try {
+            console.log('Room info:', {
+              name: room?.name || 'Unknown',
+              sid: room?.sid || 'Unknown',
+              participants: room?.participants?.size || 0
+            });
+          } catch (error) {
+            console.log('Room info: Unable to access room properties');
+          }
+          
+          if (state === 'connected') {
+            connection.isConnected = true;
+            connection.isConnecting = false;
+            console.log('✅ LiveKit room connected successfully');
+          } else if (state === 'disconnected' || state === 'failed') {
+            connection.isConnected = false;
+            connection.isConnecting = false;
+            connection.hasInitialized = false; // Allow reconnection
+            console.log('❌ LiveKit room disconnected or failed');
+          }
+        });
+
+        // Handle data channel errors gracefully
+        room.on(RoomEvent.DataReceived, (payload, participant) => {
+          console.log('Data received from:', participant.identity);
+        });
+
+        // Handle participant events
+        room.on(RoomEvent.ParticipantConnected, (participant) => {
+          console.log('Participant connected:', participant.identity);
+        });
+
+        room.on(RoomEvent.ParticipantDisconnected, (participant) => {
+          console.log('Participant disconnected:', participant.identity);
+        });
+
+      } catch (err) {
+        console.error("LiveKit connection error:", err);
+        
+        // Clean up connection state
+        connection.isConnecting = false;
+        connection.isConnected = false;
+        connection.currentUrl = null;
+        connection.hasInitialized = false; // Allow retry
+        
+        // Clean up room reference if it exists
+        if (roomRef.current) {
+          try {
+            roomRef.current.disconnect();
+          } catch (disconnectError) {
+            console.log('Error during disconnect:', disconnectError);
+          }
+          roomRef.current = null;
+        }
+        
+        // Retry connection after a delay if it's a recoverable error
+        if (err.message && !err.message.includes('Client initiated disconnect')) {
+          // Add retry count to prevent infinite loops
+          if (!connection.retryCount) {
+            connection.retryCount = 0;
+          }
+          
+          if (connection.retryCount < 3) {
+            connection.retryCount++;
+            console.log(`Scheduling retry ${connection.retryCount}/3 in 5 seconds...`);
+            setTimeout(() => {
+              if (connectionRef.current.currentUrl === streamUrl) {
+                console.log('Retrying connection...');
+                setup();
+              }
+            }, 5000);
+          } else {
+            console.log('Max retry attempts reached, stopping connection attempts');
+            connection.retryCount = 0; // Reset for next attempt
           }
         }
-      } catch (err) {
-        console.error('Player initialization error:', err);
-        setError('Failed to initialize player');
-        setIsLoading(false);
-        if (onError) onError(err);
       }
     };
 
-    // Add a small delay to ensure the container is ready
-    const timer = setTimeout(() => {
-      initializePlayer();
-    }, 100);
+    setup();
 
-    // Cleanup function
     return () => {
-      clearTimeout(timer);
-      if (avatarInstance) {
-        try {
-          avatarInstance.stop();
-        } catch (err) {
-          console.error('Error stopping avatar:', err);
+      // Only cleanup if component is actually unmounting (not just re-rendering)
+      if (roomRef.current && connection.currentUrl !== streamUrl) {
+        console.log('Component unmounting - cleaning up connection');
+        connection.isConnecting = false;
+        roomRef.current.disconnect();
+        roomRef.current = null;
+        connection.isConnected = false;
+        connection.currentUrl = null;
+        if (videoRef.current) {
+          videoRef.current.srcObject = null;
         }
       }
     };
-  }, [streamUrl, onError, onReady]);
+  }, [streamUrl, accessToken]); // Removed onReady from dependencies
 
+  // Manual connection trigger when props are available (disabled to prevent loops)
+  // useEffect(() => {
+  //   if (streamUrl && accessToken && !connectionRef.current.isConnecting && !connectionRef.current.isConnected) {
+  //     console.log('🔍 Manual connection trigger - props available but not connected');
+  //     // Force a re-render to trigger the main useEffect
+  //     const timeoutId = setTimeout(() => {
+  //       console.log('🔍 Manual connection trigger - attempting connection');
+  //       // This will trigger the main useEffect again
+  //     }, 100);
+  //     return () => clearTimeout(timeoutId);
+  //   }
+  // }, [streamUrl, accessToken]);
+
+  // ✅ Toggle video by enabling/disabling remote tracks
   const toggleVideo = () => {
-    setIsVideoEnabled(!isVideoEnabled);
-    if (avatarInstance) {
-      avatarInstance.setVideoEnabled(!isVideoEnabled);
-    } else if (videoRef.current && videoRef.current.srcObject) {
-      const tracks = videoRef.current.srcObject.getTracks();
-      tracks.forEach(track => {
-        if (track.kind === 'video') {
-          track.enabled = !isVideoEnabled;
-        }
-      });
-    }
+    setIsVideoEnabled((prev) => {
+      const enabled = !prev;
+      const room = roomRef.current;
+      if (room && room.remoteParticipants) {
+        room.remoteParticipants.forEach((p) => {
+          if (p && p.videoTracks) {
+            p.videoTracks.forEach((pub) => {
+              if (pub && pub.track) pub.track.enabled = enabled;
+            });
+          }
+        });
+      }
+      return enabled;
+    });
   };
 
+  // ✅ Toggle audio by enabling/disabling remote tracks
   const toggleAudio = () => {
-    setIsAudioEnabled(!isAudioEnabled);
-    if (avatarInstance) {
-      avatarInstance.setAudioEnabled(!isAudioEnabled);
-    } else if (videoRef.current && videoRef.current.srcObject) {
-      const tracks = videoRef.current.srcObject.getTracks();
-      tracks.forEach(track => {
-        if (track.kind === 'audio') {
-          track.enabled = !isAudioEnabled;
-        }
-      });
-    }
+    setIsAudioEnabled((prev) => {
+      const enabled = !prev;
+      const room = roomRef.current;
+      if (room && room.remoteParticipants) {
+        room.remoteParticipants.forEach((p) => {
+          if (p && p.audioTracks) {
+            p.audioTracks.forEach((pub) => {
+              if (pub && pub.track) pub.track.enabled = enabled;
+            });
+          }
+        });
+      }
+      return enabled;
+    });
   };
 
-  const handleVolumeChange = (e) => {
-    const newVolume = parseInt(e.target.value);
-    setVolume(newVolume);
-    if (avatarInstance) {
-      avatarInstance.setVolume(newVolume / 100);
-    } else if (videoRef.current) {
-      videoRef.current.volume = newVolume / 100;
-    }
-  };
-
-  const getAvatarName = (avatar) => {
-    return avatar === 'dr-jacob-jones' ? 'Dr. Jacob Jones' : 'Dr. Jane Doe';
-  };
-
-  if (error) {
-    return (
-      <div className="flex items-center justify-center h-full bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg">
-        <div className="text-center">
-          <div className="text-white mb-4">
-            <svg className="w-16 h-16 mx-auto" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
-            </svg>
-          </div>
-          <p className="text-white font-semibold mb-2">Dr. Jacob Jones</p>
-          <p className="text-white text-sm opacity-90">Avatar temporarily unavailable</p>
-          <p className="text-white text-xs opacity-75 mt-1">Stream URL: {streamUrl}</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-full bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
-          <p className="text-white font-semibold mb-2">Dr. Jacob Jones</p>
-          <p className="text-white text-sm opacity-90">Connecting to avatar stream...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // For WebRTC streams, show the official Heygen avatar
-  if (streamUrl.startsWith('webrtc://')) {
-    return (
-      <div className="relative h-full bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg overflow-hidden">
-        {/* Heygen Avatar Container */}
-        <div 
-          ref={avatarRef} 
-          className="w-full h-full"
-          style={{ minHeight: '256px' }}
-        />
-        
-        {/* Speaking Indicator */}
-        {isSpeaking && (
-          <div className="absolute top-4 right-4 bg-green-500 text-white px-2 py-1 rounded-full text-xs flex items-center">
-            <div className="w-2 h-2 bg-white rounded-full mr-1 animate-pulse"></div>
-            Speaking
-          </div>
-        )}
-        
-        <div className="absolute bottom-4 left-4 bg-black bg-opacity-50 text-white px-2 py-1 rounded text-xs">
-          LIVE
-        </div>
-        
-        {/* Video Controls */}
-        <div className="absolute bottom-4 right-4 flex space-x-2">
-          <button
-            onClick={toggleVideo}
-            className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
-              isVideoEnabled ? 'bg-green-500' : 'bg-gray-600'
-            }`}
-            title={isVideoEnabled ? 'Disable Video' : 'Enable Video'}
-          >
-            <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
-              <path d="M2 6a2 2 0 012-2h6l2 2h6a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6zM14.553 7.106A1 1 0 0014 8v4a1 1 0 00.553.894l2 1A1 1 0 0018 13V7a1 1 0 00-1.447-.894l-2 1z" />
-            </svg>
-          </button>
-          <button
-            onClick={toggleAudio}
-            className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
-              isAudioEnabled ? 'bg-green-500' : 'bg-gray-600'
-            }`}
-            title={isAudioEnabled ? 'Mute Audio' : 'Unmute Audio'}
-          >
-            <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.617.793L4.5 14H2a1 1 0 01-1-1V7a1 1 0 011-1h2.5l3.883-3.793a1 1 0 011.617.793zM12.293 7.293a1 1 0 011.414 0L15 8.586l1.293-1.293a1 1 0 111.414 1.414L16.414 10l1.293 1.293a1 1 0 01-1.414 1.414L15 11.414l-1.293 1.293a1 1 0 01-1.414-1.414L13.586 10l-1.293-1.293a1 1 0 010-1.414z" clipRule="evenodd" />
-            </svg>
-          </button>
-        </div>
-        
-        {/* Volume Control */}
-        <div className="absolute top-4 left-4 bg-black bg-opacity-50 rounded-lg p-2">
-          <div className="flex items-center space-x-2">
-            <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.617.793L4.5 14H2a1 1 0 01-1-1V7a1 1 0 011-1h2.5l3.883-3.793a1 1 0 011.617.793zM12.293 7.293a1 1 0 011.414 0L15 8.586l1.293-1.293a1 1 0 111.414 1.414L16.414 10l1.293 1.293a1 1 0 01-1.414 1.414L15 11.414l-1.293 1.293a1 1 0 01-1.414-1.414L13.586 10l-1.293-1.293a1 1 0 010-1.414z" clipRule="evenodd" />
-            </svg>
-            <input
-              type="range"
-              min="0"
-              max="100"
-              value={volume}
-              onChange={handleVolumeChange}
-              className="w-16 h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer"
-            />
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // For regular video streams
   return (
-    <div className="relative h-full bg-black rounded-lg overflow-hidden">
+    <div className="heygen-player">
+      {isLoading && <p>Loading HeyGen avatar…</p>}
+
       <video
         ref={videoRef}
-        className="w-full h-full object-cover"
-        controls
         autoPlay
-        muted
         playsInline
-      >
-        <source src={streamUrl} type="video/mp4" />
-        Your browser does not support the video tag.
-      </video>
-      
-      {/* Speaking Indicator */}
-      {isSpeaking && (
-        <div className="absolute top-4 right-4 bg-green-500 text-white px-2 py-1 rounded-full text-xs flex items-center">
-          <div className="w-2 h-2 bg-white rounded-full mr-1 animate-pulse"></div>
-          Speaking
-        </div>
-      )}
-      
-      <div className="absolute bottom-4 left-4 bg-black bg-opacity-50 text-white px-2 py-1 rounded text-xs">
-        LIVE
-      </div>
-      
-      {/* Video Controls */}
-      <div className="absolute bottom-4 right-4 flex space-x-2">
-        <button
-          onClick={toggleVideo}
-          className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
-            isVideoEnabled ? 'bg-green-500' : 'bg-gray-600'
-          }`}
-          title={isVideoEnabled ? 'Disable Video' : 'Enable Video'}
-        >
-          <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
-            <path d="M2 6a2 2 0 012-2h6l2 2h6a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6zM14.553 7.106A1 1 0 0014 8v4a1 1 0 00.553.894l2 1A1 1 0 0018 13V7a1 1 0 00-1.447-.894l-2 1z" />
-          </svg>
+        muted={!isAudioEnabled}
+        style={{ width: "100%", borderRadius: "12px" }}
+      />
+
+      <div className="controls" style={{ marginTop: "10px" }}>
+        <button onClick={toggleVideo}>
+          {isVideoEnabled ? "Turn Video Off" : "Turn Video On"}
         </button>
-        <button
-          onClick={toggleAudio}
-          className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
-            isAudioEnabled ? 'bg-green-500' : 'bg-gray-600'
-          }`}
-          title={isAudioEnabled ? 'Mute Audio' : 'Unmute Audio'}
-        >
-          <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.617.793L4.5 14H2a1 1 0 01-1-1V7a1 1 0 011-1h2.5l3.883-3.793a1 1 0 011.617.793zM12.293 7.293a1 1 0 011.414 0L15 8.586l1.293-1.293a1 1 0 111.414 1.414L16.414 10l1.293 1.293a1 1 0 01-1.414 1.414L15 11.414l-1.293 1.293a1 1 0 01-1.414-1.414L13.586 10l-1.293-1.293a1 1 0 010-1.414z" clipRule="evenodd" />
-          </svg>
+        <button onClick={toggleAudio}>
+          {isAudioEnabled ? "Mute" : "Unmute"}
         </button>
-      </div>
-      
-      {/* Volume Control */}
-      <div className="absolute top-4 left-4 bg-black bg-opacity-50 rounded-lg p-2">
-        <div className="flex items-center space-x-2">
-          <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.617.793L4.5 14H2a1 1 0 01-1-1V7a1 1 0 011-1h2.5l3.883-3.793a1 1 0 011.617.793zM12.293 7.293a1 1 0 011.414 0L15 8.586l1.293-1.293a1 1 0 111.414 1.414L16.414 10l1.293 1.293a1 1 0 01-1.414 1.414L15 11.414l-1.293 1.293a1 1 0 01-1.414-1.414L13.586 10l-1.293-1.293a1 1 0 010-1.414z" clipRule="evenodd" />
-          </svg>
-          <input
-            type="range"
-            min="0"
-            max="100"
-            value={volume}
-            onChange={handleVolumeChange}
-            className="w-16 h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer"
-          />
-        </div>
       </div>
     </div>
   );

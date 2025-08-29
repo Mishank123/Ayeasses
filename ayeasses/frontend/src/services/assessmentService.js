@@ -217,6 +217,30 @@ class AssessmentService {
         }
       }
 
+      // For text assessments, we don't need Heygen streaming
+      if (mode === 'text-assessment') {
+        console.log('Text assessment mode detected, skipping Heygen streaming');
+        
+        // Create a simple session for text assessment
+        const sessionId = `text_session_${Date.now()}`;
+        
+        return { 
+          success: true, 
+          data: {
+            sessionId: sessionId,
+            heygenSessionId: null,
+            streamUrl: null,
+            messageId: null,
+            mock: false,
+            avatarConfig: finalAvatarConfig || {},
+            mode: 'text-assessment'
+          }
+        };
+      }
+
+      // For video assessments, create Heygen streaming session
+      console.log('Video assessment mode detected, creating Heygen streaming session');
+      
       // Map avatar configuration to Heygen parameters
       const avatarName = finalAvatarConfig?.avatarPersona === 'dr-jane-doe' ? 'Ann_Doctor_Sitting_public' : 'Ann_Doctor_Sitting_public';
       const voiceSettings = {
@@ -254,12 +278,16 @@ class AssessmentService {
       });
 
       // Create assessment session record in backend (minimal data)
-      const sessionResponse = await assessmentAPI.post(`/${assessmentId}/create-session`, {
+      const sessionPayload = {
         heygenSessionId: heygenResult.sessionId,
         streamUrl: heygenResult.streamUrl,
         mode: mode,
         avatarConfig: finalAvatarConfig || {}
-      });
+      };
+      
+      console.log('🔍 Sending create-session payload:', sessionPayload);
+      
+      const sessionResponse = await assessmentAPI.post(`/${assessmentId}/create-session`, sessionPayload);
 
       if (!sessionResponse.data.success) {
         // Check if it's an "already has active session" error
@@ -294,6 +322,9 @@ class AssessmentService {
       };
     } catch (error) {
       console.error('Start assessment error:', error);
+      console.error('🔍 Error response data:', error.response?.data);
+      console.error('🔍 Error response status:', error.response?.status);
+      console.error('🔍 Error response headers:', error.response?.headers);
       
       // Check if it's an "already has active session" error with existing session data
       if (error.response?.status === 400 && error.response?.data?.error?.includes('already have an active session')) {
@@ -496,6 +527,62 @@ class AssessmentService {
       return {
         success: false,
         error: error.response?.data?.error || 'Failed to send initial hi',
+        details: error.response?.data || null,
+      };
+    }
+  }
+
+  // Get text assessment questions
+  async getTextAssessmentQuestions(courseId) {
+    try {
+      const response = await axios.get(`https://avatarai.awwwex.com/v1/questions/qna?course_id=${courseId}`);
+      
+      if (response.data && Array.isArray(response.data)) {
+        return { 
+          success: true, 
+          data: response.data 
+        };
+      } else {
+        throw new Error('Invalid questions data received');
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: error.response?.data?.error || 'Failed to fetch questions',
+        details: error.response?.data || null,
+      };
+    }
+  }
+
+  // Save text assessment answer
+  async saveTextAssessmentAnswer(questionId, courseId, userAnswer, userId, question = '', difficulty = 'medium') {
+    try {
+      const sessionId = `qna_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      const timestamp = new Date().toISOString();
+      
+      const payload = {
+        courseId: courseId,
+        sessionId: sessionId,
+        questionId: questionId,
+        question: question,
+        userAnswer: userAnswer,
+        difficulty: difficulty,
+        timestamp: timestamp
+      };
+
+      console.log('Saving answer with payload:', payload);
+
+      const response = await axios.post('https://avatarai.awwwex.com/v1/agents/completions-finance-save/', payload);
+      
+      if (response.status === 200) {
+        return { success: true, data: response.data };
+      } else {
+        throw new Error('Failed to save answer');
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: error.response?.data?.error || 'Failed to save answer',
         details: error.response?.data || null,
       };
     }

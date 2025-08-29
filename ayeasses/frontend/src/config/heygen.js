@@ -1,6 +1,6 @@
 // Heygen API Configuration
 export const HEYGEN_CONFIG = {
-  // API Base URL
+  // API Base URL - Direct HeyGen API calls
   API_BASE_URL: 'https://api.heygen.com/v1',
   
   // API Key - can be set via environment variable or localStorage

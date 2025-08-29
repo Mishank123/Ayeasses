@@ -5,11 +5,10 @@ const AssessmentCard = ({ assessment }) => {
   const [showToast, setShowToast] = useState(false);
 
   const handlePlay = () => {
-    // Redirect to the AI avatar personalization screen
-    // You can customize this route based on your routing structure
-    window.location.href = `/assessment/${assessment.url}/personalize`;
+    // Redirect to the main assessment route which will auto-route based on assessment type
+    window.location.href = `/assessment/${assessment.url}`;
     // Or if you want to use React Router:
-    // navigate(`/assessment/${assessment.url}/personalize`);
+    // navigate(`/assessment/${assessment.url}`);
   };
 
   const handleCopy = async () => {

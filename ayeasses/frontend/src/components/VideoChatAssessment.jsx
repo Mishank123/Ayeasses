@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import HeygenPlayer from './HeygenPlayer';
 import assessmentService from '../services/assessmentService';
@@ -19,17 +19,30 @@ const VideoChatAssessment = () => {
   const [hasSentInitialHi, setHasSentInitialHi] = useState(false);
   const [chatSessionId, setChatSessionId] = useState(null);
   const [streamUrl, setStreamUrl] = useState(null);
-  const [isSpeaking, setIsSpeaking] = useState(false);
-  const [spokenText, setSpokenText] = useState('');
+  const [accessToken, setAccessToken] = useState(null);
   const [timer, setTimer] = useState(0);
-  const [currentQuestion, setCurrentQuestion] = useState('');
-  
-  // New state for Heygen API flow
-  const [heygenToken, setHeygenToken] = useState(null);
-  const [heygenStreamId, setHeygenStreamId] = useState(null);
 
-  const videoRef = useRef(null);
+  // Debug state changes
+  useEffect(() => {
+    console.log('🔍 State updated - streamUrl:', streamUrl ? `${streamUrl.substring(0, 50)}...` : 'None');
+  }, [streamUrl]);
+
+  useEffect(() => {
+    console.log('🔍 State updated - accessToken:', accessToken ? `${typeof accessToken} - ${accessToken.substring(0, 20)}...` : 'None');
+  }, [accessToken]);
+  const [currentQuestion, setCurrentQuestion] = useState('');
   const messagesEndRef = useRef(null);
+  const sessionInitializedRef = useRef(false);
+
+  // Memoized callbacks to prevent re-renders
+  const handlePlayerReady = useCallback(() => {
+    console.log('Player ready');
+  }, []);
+
+  const handlePlayerError = useCallback((error) => {
+    console.error('Player error:', error);
+    setError(error.message);
+  }, []);
 
   // Timer effect
   useEffect(() => {
@@ -91,38 +104,109 @@ const VideoChatAssessment = () => {
   // Initialize session data and send initial hi
   useEffect(() => {
     const initializeSession = async () => {
-      if (!assessment || hasSentInitialHi) return;
+      // Wait for assessment to be loaded
+      if (!assessment) {
+        console.log('Assessment not loaded yet, waiting...');
+        return;
+      }
+      
+      if (hasSentInitialHi) {
+        console.log('Initial hi already sent, skipping...');
+        return;
+      }
+
+      // Prevent multiple initializations using ref
+      if (sessionInitializedRef.current) {
+        console.log('Session already initialized (ref check), skipping...');
+        return;
+      }
+
+      // Prevent multiple initializations
+      if (streamUrl && accessToken) {
+        console.log('Session already initialized, skipping...');
+        return;
+      }
+
+      // Check if we're already in the process of initializing
+      if (isLoading) {
+        console.log('Already loading, skipping initialization...');
+        return;
+      }
 
       try {
+        setIsLoading(true);
         console.log('Initializing session data...');
         
-        // Get session data from location state or session storage
-        let currentSessionData = sessionData;
-        if (!currentSessionData) {
-          const storedSession = sessionStorage.getItem(`assessmentSession_${uuid}`);
-          if (storedSession) {
-            currentSessionData = JSON.parse(storedSession);
-          }
-        }
+        // Always create new session using direct HeyGen API (ignore cached data)
+        console.log('Creating new session using direct HeyGen API...');
+        
+                 const heygenResult = await heygenService.getDirectStreamUrl({
+           avatarName: 'Ann_Doctor_Sitting_public',
+           quality: 'high',
+           voiceSettings: {
+             rate: 1,
+             emotion: 'excited'
+           }
+         });
 
-        if (currentSessionData) {
-          setStreamUrl(currentSessionData.streamUrl);
-          setChatSessionId(currentSessionData.sessionId);
+        if (heygenResult.success) {
+          console.log('✅ HeyGen stream URL obtained:', heygenResult.streamUrl);
           
-          // Send initial hi using the same flow as AssessmentProgress
+          // Store the new session data
+          const newSessionData = {
+            streamUrl: heygenResult.streamUrl,
+            sessionId: heygenResult.sessionId,
+            accessToken: heygenResult.accessToken,
+            iceServers: heygenResult.iceServers,
+            userId: '6511534f6966f424d53bda75',
+            userName: 'Dnyaneshwar Naiknavare',
+            avatarConfig: assessment?.avatarConfig
+          };
+          
+          sessionStorage.setItem(`assessmentSession_${uuid}`, JSON.stringify(newSessionData));
+          
+          console.log('🔍 Session data stored:', newSessionData);
+          console.log('🔍 Setting stream URL:', heygenResult.streamUrl);
+          
+          setStreamUrl(heygenResult.streamUrl);
+          
+          // Ensure access token is a string
+          const accessToken = typeof heygenResult.accessToken === 'string' 
+            ? heygenResult.accessToken 
+            : String(heygenResult.accessToken);
+          
+          console.log('🔍 Setting access token - Final type:', typeof accessToken);
+          console.log('🔍 Setting access token - Final value:', accessToken);
+          
+          setAccessToken(accessToken);
+          setChatSessionId(heygenResult.sessionId);
+          
+          console.log('🔍 HeyGen result access token:', {
+            type: typeof heygenResult.accessToken,
+            value: heygenResult.accessToken,
+            length: heygenResult.accessToken?.length,
+            isString: typeof heygenResult.accessToken === 'string',
+            isObject: typeof heygenResult.accessToken === 'object'
+          });
+          
+          // Mark session as initialized
+          sessionInitializedRef.current = true;
+          
+          // Send initial hi
           await sendInitialHi();
         } else {
-          console.error('No session data found');
-          setError('Assessment not found or not published');
+          throw new Error(`HeyGen API failed: ${heygenResult.error}`);
         }
       } catch (err) {
         console.error('Error initializing session:', err);
         setError(err.message);
+      } finally {
+        setIsLoading(false);
       }
     };
 
     initializeSession();
-  }, [assessment, hasSentInitialHi, uuid, sessionData]);
+  }, [uuid]); // Remove assessment from dependencies to prevent multiple calls
 
   // Send initial hi message (same as AssessmentProgress)
   const sendInitialHi = async () => {
@@ -147,13 +231,11 @@ const VideoChatAssessment = () => {
         return;
       }
 
-      // Get session data
-      let currentSessionData = sessionData;
-      if (!currentSessionData) {
-        const storedSession = sessionStorage.getItem(`assessmentSession_${uuid}`);
-        if (storedSession) {
-          currentSessionData = JSON.parse(storedSession);
-        }
+      // Get session data from session storage (new session data)
+      const storedSession = sessionStorage.getItem(`assessmentSession_${uuid}`);
+      let currentSessionData = null;
+      if (storedSession) {
+        currentSessionData = JSON.parse(storedSession);
       }
 
       // Call AvatarAI API directly with initial hi
@@ -245,13 +327,11 @@ const VideoChatAssessment = () => {
         return;
       }
 
-      // Get session data
-      let currentSessionData = sessionData;
-      if (!currentSessionData) {
-        const storedSession = sessionStorage.getItem(`assessmentSession_${uuid}`);
-        if (storedSession) {
-          currentSessionData = JSON.parse(storedSession);
-        }
+      // Get session data from session storage (new session data)
+      const storedSession = sessionStorage.getItem(`assessmentSession_${uuid}`);
+      let currentSessionData = null;
+      if (storedSession) {
+        currentSessionData = JSON.parse(storedSession);
       }
       
       // Call AvatarAI API directly from frontend (same as AssessmentProgress)
@@ -299,6 +379,28 @@ const VideoChatAssessment = () => {
           sessionId: result.sessionId,
           response: avatarResponse.text
         });
+
+        // Send text to HeyGen avatar to make it speak
+        if (currentSessionData?.sessionId) {
+          console.log('🔍 Sending text to HeyGen avatar to speak...');
+          const heygenResult = await heygenService.sendTextToAvatar(
+            currentSessionData.sessionId,
+            nextQuestion || aiResponse
+          );
+          
+          if (heygenResult.success) {
+            console.log('✅ Text sent to HeyGen avatar successfully');
+            
+            // Ensure LiveKit connection is ready
+            await heygenService.ensureLiveKitConnection(
+              currentSessionData.sessionId,
+              currentSessionData.streamUrl,
+              currentSessionData.accessToken
+            );
+          } else {
+            console.warn('⚠️ Failed to send text to HeyGen avatar:', heygenResult.error);
+          }
+        }
       } else {
         throw new Error(result.error || 'Failed to get response');
       }
@@ -467,35 +569,72 @@ const VideoChatAssessment = () => {
                <div className="bg-white rounded-lg shadow-sm border p-2 sm:p-4 lg:p-6 h-full flex flex-col">
                  <div className="flex items-center justify-between mb-2 sm:mb-3 lg:mb-4">
                    <div className="min-w-0 flex-1">
-                     <h2 className="text-base sm:text-lg lg:text-xl font-semibold text-gray-900 truncate">Dr. Jacob Jones</h2>
+                                           <h2 className="text-base sm:text-lg lg:text-xl font-semibold text-gray-900 truncate">Dr. Ann</h2>
                      <p className="text-xs lg:text-sm text-gray-600 truncate">Tone: Formal | Emotion: Excited</p>
                    </div>
-                   <button
-                     onClick={() => navigate(`/assessment/${uuid}/progress`, { state: { sessionData } })}
-                     className="bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 lg:px-3 lg:py-1 rounded text-xs lg:text-sm flex items-center space-x-1 ml-2"
-                   >
-                     <svg className="w-3 h-3 lg:w-4 lg:h-4" fill="currentColor" viewBox="0 0 20 20">
-                       <path fillRule="evenodd" d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.338-3.123C2.493 12.767 2 11.434 2 10c0-3.866 3.582-7 8-7s8 3.134 8 7zM7 9H5v2h2V9zm8 0h-2v2h2V9zM9 9h2v2H9V9z" clipRule="evenodd" />
-                     </svg>
-                     <span className="hidden sm:inline">Switch to Text Chat</span>
-                   </button>
+                   <div className="flex space-x-2">
+                     <button
+                       onClick={() => {
+                         // Clear old session data
+                         sessionStorage.removeItem(`assessmentSession_${uuid}`);
+                         sessionStorage.removeItem(`assessment_${uuid}`);
+                         toast.success('Session cleared! Please refresh the page.');
+                       }}
+                       className="bg-red-600 hover:bg-red-700 text-white px-2 py-1 lg:px-3 lg:py-1 rounded text-xs lg:text-sm flex items-center space-x-1"
+                       title="Clear old session data to use new URL"
+                     >
+                       <svg className="w-3 h-3 lg:w-4 lg:h-4" fill="currentColor" viewBox="0 0 20 20">
+                         <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                       </svg>
+                       <span className="hidden sm:inline">Clear Session</span>
+                     </button>
+                     <button
+                       onClick={() => navigate(`/assessment/${uuid}/progress`, { state: { sessionData } })}
+                       className="bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 lg:px-3 lg:py-1 rounded text-xs lg:text-sm flex items-center space-x-1"
+                     >
+                       <svg className="w-3 h-3 lg:w-4 lg:h-4" fill="currentColor" viewBox="0 0 20 20">
+                         <path fillRule="evenodd" d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.338-3.123C2.493 12.767 2 11.434 2 10c0-3.866 3.582-7 8-7s8 3.134 8 7zM7 9H5v2h2V9zm8 0h-2v2h2V9zM9 9h2v2H9V9z" clipRule="evenodd" />
+                       </svg>
+                       <span className="hidden sm:inline">Switch to Text Chat</span>
+                     </button>
+                     <button
+                       onClick={() => navigate(`/assessment/${uuid}/text`, { state: { sessionData } })}
+                       className="bg-green-600 hover:bg-green-700 text-white px-2 py-1 lg:px-3 lg:py-1 rounded text-xs lg:text-sm flex items-center space-x-1"
+                     >
+                       <svg className="w-3 h-3 lg:w-4 lg:h-4" fill="currentColor" viewBox="0 0 20 20">
+                         <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clipRule="evenodd" />
+                       </svg>
+                       <span className="hidden sm:inline">Switch to Text Assessment</span>
+                     </button>
+                   </div>
                  </div>
                  
                  <div className="flex-1 relative min-h-0">
-                   <HeygenPlayer
-                     streamUrl={streamUrl}
-                     avatarSettings={assessment?.avatarConfig}
-                     spokenText={spokenText}
-                     isSpeaking={isSpeaking}
-                     onError={(error) => {
-                       console.error('Player error:', error);
-                       setError(error.message);
-                     }}
-                     onReady={() => {
-                       console.log('Player ready');
-                     }}
-                     className="w-full h-full"
-                   />
+                                       <HeygenPlayer
+                      key={`${streamUrl}-${accessToken}`}
+                      streamUrl={streamUrl}
+                      accessToken={accessToken}
+                      avatarSettings={assessment?.avatarConfig}
+                      onError={handlePlayerError}
+                      onReady={handlePlayerReady}
+                      className="w-full h-full"
+                    />
+                    
+                    {/* Debug info */}
+                    <div className="absolute top-0 left-0 bg-black bg-opacity-75 text-white text-xs p-2 rounded">
+                      <div>URL: {streamUrl ? `${streamUrl.substring(0, 50)}...` : 'None'}</div>
+                      <div>Token: {accessToken ? `${typeof accessToken} - ${accessToken.substring(0, 20)}...` : 'None'}</div>
+                      <div>Loading: {isLoading ? 'Yes' : 'No'}</div>
+                      <div>Error: {error || 'None'}</div>
+                    </div>
+                    
+                    {/* Debug info */}
+                    {streamUrl && (
+                      <div className="absolute top-0 left-0 bg-black bg-opacity-75 text-white text-xs p-2 rounded">
+                        <div>URL: {streamUrl.substring(0, 50)}...</div>
+                        <div>Token: {accessToken ? `${typeof accessToken} - ${accessToken.substring(0, 20)}...` : 'None'}</div>
+                      </div>
+                    )}
 
                    {/* Error Display */}
                    {error && (
