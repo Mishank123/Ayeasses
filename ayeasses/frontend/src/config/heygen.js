@@ -7,7 +7,7 @@ export const HEYGEN_CONFIG = {
   getApiKey: () => {
     const envKey = process.env.REACT_APP_HEYGEN_API_KEY;
     const localKey = localStorage.getItem('heygen_api_key');
-    const validKey = 'YTlhZDMwYzZmODM3NDUyMGJiYzMyMmRmNmNhYmY2MGEtMTc1NDM3NjEzMg=='; // Valid Heygen API key
+    const validKey = 'NjY1MDY4OTYyOThiNGZjZWFkM2FiYjBkZjgwZjdkODUtMTc1Mjc0NDQxNQ=='; // Valid Heygen API key
     
     const apiKey = envKey || localKey || validKey;
     

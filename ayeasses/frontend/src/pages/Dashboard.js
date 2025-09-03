@@ -168,7 +168,7 @@ const Dashboard = () => {
         </p>
         <div className="flex items-center space-x-2">
           <button 
-            onClick={() => navigate(`/assessment/${assessment.url || assessment.id}`)}
+            onClick={() => navigate(`/assessment/${assessment.url || assessment.id}/personalize`)}
             className="p-2 rounded-md text-green-600 hover:text-green-700 hover:bg-green-50 transition-colors"
             title="Play Assessment"
           >

@@ -124,46 +124,49 @@ const VideoChatAssessment = () => {
       try {
         setIsLoading(true);
         setError(null);
-        console.log('Initializing HeyGen session...');
+        console.log('Initializing HeyGen session (reuse if available)...');
 
+        // Prefer existing session created during mode selection
+        const stored = sessionStorage.getItem(`assessmentSession_${uuid}`);
+        if (stored) {
+          const existing = JSON.parse(stored);
+          if (existing.streamUrl && existing.sessionId && existing.streamUrl.startsWith('wss://')) {
+            console.log('♻️ Reusing existing HeyGen session from storage');
+            setStreamUrl(existing.streamUrl);
+            setAccessToken(existing.accessToken ? String(existing.accessToken) : null);
+            setChatSessionId(existing.sessionId);
+            await sendInitialHi();
+            return;
+          }
+        }
+
+        // Fallback: create a fresh session
+        console.log('No reusable session found, creating new...');
         const heygenResult = await heygenService.getDirectStreamUrl({
           avatarName: 'Ann_Doctor_Sitting_public',
           quality: 'high',
-          voiceSettings: {
-            rate: 1,
-            emotion: 'excited'
-          }
+          voiceSettings: { rate: 1, emotion: 'excited' }
         });
 
-        if (heygenResult.success) {
-          console.log('✅ HeyGen stream created:', {
-            url: heygenResult.streamUrl,
-            sessionId: heygenResult.sessionId,
-            hasToken: !!heygenResult.accessToken
-          });
-
-          const newSessionData = {
-            streamUrl: heygenResult.streamUrl,
-            sessionId: heygenResult.sessionId,
-            accessToken: heygenResult.accessToken,
-            iceServers: heygenResult.iceServers,
-            userId: '6511534f6966f424d53bda75',
-            userName: 'Dnyaneshwar Naiknavare',
-            avatarConfig: assessment?.avatarConfig
-          };
-
-          sessionStorage.setItem(`assessmentSession_${uuid}`, JSON.stringify(newSessionData));
-          setStreamUrl(heygenResult.streamUrl);
-          setAccessToken(typeof heygenResult.accessToken === 'string' ? heygenResult.accessToken : String(heygenResult.accessToken || ''));
-          setChatSessionId(heygenResult.sessionId);
-
-          await sendInitialHi();
-        } else {
-          console.error('HeyGen session create failed:', heygenResult.error);
-          setError(heygenResult.error || 'Failed to create HeyGen session');
-          // Allow retry on next user navigation by unlocking
-          sessionInitializedRef.current = false;
+        if (!heygenResult.success) {
+          throw new Error(heygenResult.error || 'Failed to create HeyGen session');
         }
+
+        const newSessionData = {
+          streamUrl: heygenResult.streamUrl,
+          sessionId: heygenResult.sessionId,
+          accessToken: heygenResult.accessToken,
+          iceServers: heygenResult.iceServers,
+          userId: '6511534f6966f424d53bda75',
+          userName: 'Dnyaneshwar Naiknavare',
+          avatarConfig: assessment?.avatarConfig
+        };
+
+        sessionStorage.setItem(`assessmentSession_${uuid}`, JSON.stringify(newSessionData));
+        setStreamUrl(heygenResult.streamUrl);
+        setAccessToken(typeof heygenResult.accessToken === 'string' ? heygenResult.accessToken : String(heygenResult.accessToken || ''));
+        setChatSessionId(heygenResult.sessionId);
+        await sendInitialHi();
       } catch (err) {
         console.error('Error initializing session:', err);
         setError(err.message);

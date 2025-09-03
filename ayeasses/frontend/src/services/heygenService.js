@@ -76,42 +76,13 @@ class HeygenService {
     this.iceServers = null;
   }
 
-  // Utility: wait until LiveKit room is ready
-  async waitForRoomReady(livekitWsUrl, accessToken, timeoutMs = 15000) {
-    try {
-      const base = livekitWsUrl.replace('wss://', 'https://');
-      const params = new URLSearchParams({
-        access_token: accessToken,
-        auto_subscribe: '1',
-        sdk: 'js',
-        version: '2.13.3',
-        protocol: '16',
-        adaptive_stream: '1'
-      }).toString();
-      const validateUrl = `${base}/rtc?${params}`;
-      const started = Date.now();
-      let attempt = 0;
-      while (Date.now() - started < timeoutMs) {
-        attempt += 1;
-        try {
-          const res = await fetch(validateUrl, { method: 'GET' });
-          if (res.ok) {
-            console.log(`✅ LiveKit room ready after ${attempt} checks`);
-            return true;
-          }
-          const text = await res.text();
-          console.log(`⏳ LiveKit not ready (attempt ${attempt}) - ${res.status}: ${text}`);
-        } catch (e) {
-          console.log(`⏳ LiveKit validation error (attempt ${attempt}):`, e?.message || e);
-        }
-        await new Promise(r => setTimeout(r, 1000));
-      }
-      console.warn('⚠️ Timed out waiting for LiveKit room readiness');
-      return false;
-    } catch (e) {
-      console.warn('⚠️ waitForRoomReady failed:', e?.message || e);
-      return false;
-    }
+  // Utility: wait briefly before attempting to connect
+  async waitForRoomReady(livekitWsUrl, accessToken, timeoutMs = 1500) {
+    // The previous implementation polled LiveKit's /rtc endpoint which returns 404 on cloud,
+    // causing noisy console errors. A short delay is sufficient before connecting.
+    await new Promise(resolve => setTimeout(resolve, timeoutMs));
+    console.log('⏳ Skipping LiveKit /rtc polling; waited briefly before connect');
+    return true;
   }
 
   // Test method to check API connectivity

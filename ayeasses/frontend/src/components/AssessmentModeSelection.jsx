@@ -74,7 +74,8 @@ const AssessmentModeSelection = () => {
         
         // Navigate to the appropriate assessment page based on mode
         if (selectedMode === 'video') {
-          navigate(`/assessment/${uuid}/session`, {
+          // Show the loading/progress page first
+          navigate(`/assessment/${uuid}/progress`, {
             state: {
               avatarSettings: avatarConfig,
               mode: selectedMode,
