@@ -78,6 +78,7 @@ const AssessmentModeSelection = () => {
           sessionId: result.data.sessionId,
           heygenSessionId: result.data.heygenSessionId,
           streamUrl: result.data.streamUrl,
+          accessToken: result.data.accessToken,
           messageId: result.data.messageId,
           mode: selectedMode,
           avatarConfig: result.data.avatarConfig

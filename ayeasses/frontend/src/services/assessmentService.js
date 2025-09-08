@@ -299,6 +299,7 @@ class AssessmentService {
               sessionId: sessionResponse.data.sessionId,
               streamUrl: sessionResponse.data.streamUrl,
               heygenSessionId: heygenResult.sessionId,
+              accessToken: heygenResult.accessToken,
               messageId: heygenResult.messageId,
               mock: heygenResult.mock || false,
               avatarConfig: finalAvatarConfig || {},
@@ -315,6 +316,7 @@ class AssessmentService {
           ...sessionResponse.data,
           heygenSessionId: heygenResult.sessionId,
           streamUrl: heygenResult.streamUrl,
+          accessToken: heygenResult.accessToken,
           messageId: heygenResult.messageId,
           mock: heygenResult.mock || false,
           avatarConfig: finalAvatarConfig || {}
@@ -335,6 +337,7 @@ class AssessmentService {
             sessionId: error.response.data.sessionId,
             streamUrl: error.response.data.streamUrl,
             heygenSessionId: null, // Will be set by Heygen service
+            accessToken: null, // Will be set by Heygen service
             messageId: null, // Will be set by Heygen service
             mock: false,
             avatarConfig: finalAvatarConfig || {},

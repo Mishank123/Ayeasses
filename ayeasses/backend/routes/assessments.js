@@ -709,7 +709,7 @@ router.post('/:id/start', authenticateToken, async (req, res) => {
     try {
       const [existingSession] = await db.query(
         'SELECT * FROM assessment_sessions WHERE assessment_id = ? AND user_id = ? AND status = "active"',
-        [id, req.user.id]
+        [id, req.user?.id || 'public']
       );
 
       if (existingSession) {
@@ -967,15 +967,15 @@ router.post('/:id/start', authenticateToken, async (req, res) => {
   }
 });
 
-// Stop assessment session
-router.post('/:id/stop', authenticateToken, async (req, res) => {
+// Stop assessment session - supports both authenticated and public access
+router.post('/:id/stop', async (req, res) => {
   try {
     const { id } = req.params;
     
     // Find active session for this assessment and user
     const [session] = await db.query(
       'SELECT * FROM assessment_sessions WHERE assessment_id = ? AND user_id = ? AND status = "active"',
-      [id, req.user.id]
+      [id, req.user?.id || 'public']
     );
 
     if (!session) {
@@ -1013,7 +1013,7 @@ router.get('/:id/session', authenticateToken, async (req, res) => {
     // Find active session for this assessment and user
     const [session] = await db.query(
       'SELECT * FROM assessment_sessions WHERE assessment_id = ? AND user_id = ? AND status = "active"',
-      [id, req.user.id]
+      [id, req.user?.id || 'public']
     );
 
     if (!session) {
@@ -1051,7 +1051,7 @@ router.post('/:id/send-reply', authenticateToken, async (req, res) => {
     // Find active session for this assessment and user
     const [session] = await db.query(
       'SELECT * FROM assessment_sessions WHERE assessment_id = ? AND user_id = ? AND status = "active"',
-      [id, req.user.id]
+      [id, req.user?.id || 'public']
     );
 
     if (!session) {
@@ -1146,7 +1146,7 @@ router.post('/:id/chat', authenticateToken, async (req, res) => {
     // Find active session for this assessment and user
     const [session] = await db.query(
       'SELECT * FROM assessment_sessions WHERE assessment_id = ? AND user_id = ? AND status = "active"',
-      [id, req.user.id]
+      [id, req.user?.id || 'public']
     );
 
     if (!session) {
@@ -1246,7 +1246,7 @@ router.post('/:id/send-text', authenticateToken, async (req, res) => {
     // Find active session for this assessment and user
     const [session] = await db.query(
       'SELECT * FROM assessment_sessions WHERE assessment_id = ? AND user_id = ? AND status = "active"',
-      [id, req.user.id]
+      [id, req.user?.id || 'public']
     );
 
     if (!session) {
@@ -1333,7 +1333,7 @@ router.post('/:id/create-session', async (req, res) => {
       try {
         const [existingSession] = await db.query(
           'SELECT * FROM assessment_sessions WHERE assessment_id = ? AND user_id = ? AND status = "active"',
-          [id, req.user.id]
+          [id, req.user?.id || 'public']
         );
 
         if (existingSession) {
