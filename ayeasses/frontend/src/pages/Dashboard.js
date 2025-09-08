@@ -168,7 +168,18 @@ const Dashboard = () => {
         </p>
         <div className="flex items-center space-x-2">
           <button 
-            onClick={() => navigate(`/assessment/${assessment.url || assessment.id}/personalize`)}
+            onClick={() => {
+              console.log('Dashboard - Assessment clicked:', assessment);
+              console.log('Dashboard - Assessment type:', assessment.assessmentType);
+              // Check assessment type and route accordingly
+              if (assessment.assessmentType === 'text') {
+                console.log('Dashboard - Routing to text assessment');
+                navigate(`/assessment/${assessment.url || assessment.id}`);
+              } else {
+                console.log('Dashboard - Routing to personalization');
+                navigate(`/assessment/${assessment.url || assessment.id}/personalize`);
+              }
+            }}
             className="p-2 rounded-md text-green-600 hover:text-green-700 hover:bg-green-50 transition-colors"
             title="Play Assessment"
           >

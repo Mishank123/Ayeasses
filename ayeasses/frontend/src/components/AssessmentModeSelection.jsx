@@ -25,6 +25,19 @@ const AssessmentModeSelection = () => {
       console.log('Assessment result:', result);
       if (result.success) {
         setAssessment(result.data);
+        console.log('Assessment type:', result.data.assessmentType);
+        console.log('Assessment type check:', result.data.assessmentType === 'text');
+        
+        // If assessment type is 'text', automatically start text assessment
+        if (result.data.assessmentType === 'text') {
+          console.log('Text assessment detected, starting automatically...');
+          setSelectedMode('text-assessment');
+          setStartingSession(true);
+          // Start the text assessment immediately
+          setTimeout(() => {
+            handleStartAssessment();
+          }, 1000); // Small delay to show loading state
+        }
       } else {
         console.error('Failed to fetch assessment:', result.error);
       }
@@ -168,6 +181,11 @@ const AssessmentModeSelection = () => {
           <p className="text-gray-600">
             {startingSession ? 'Starting assessment...' : 'Loading assessment...'}
           </p>
+          {assessment?.assessmentType === 'text' && (
+            <p className="text-sm text-gray-500 mt-2">
+              Text assessment detected, starting automatically...
+            </p>
+          )}
         </div>
       </div>
     );
@@ -185,6 +203,18 @@ const AssessmentModeSelection = () => {
           >
             Back to Dashboard
           </button>
+        </div>
+      </div>
+    );
+  }
+
+  // If it's a text assessment, don't show the mode selection UI
+  if (assessment?.assessmentType === 'text') {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Starting text assessment...</p>
         </div>
       </div>
     );

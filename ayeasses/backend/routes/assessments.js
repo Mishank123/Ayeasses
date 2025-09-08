@@ -263,7 +263,7 @@ router.post('/', authenticateToken, async (req, res) => {
       [assessmentId]
     );
 
-    logger.info(`Assessment created: ${assessmentId} by user: ${req.user.email}`);
+    logger.info(`Assessment created: ${assessmentId} by user: ${req.user?.email || 'public'}`);
 
     res.status(201).json({
       message: 'Assessment created successfully',
@@ -388,7 +388,7 @@ router.put('/id/:id', authenticateToken, async (req, res) => {
       [id]
     );
 
-    logger.info(`Assessment updated: ${id} by user: ${req.user.email}`);
+    logger.info(`Assessment updated: ${id} by user: ${req.user?.email || 'public'}`);
 
     res.json({
       message: 'Assessment updated successfully',
@@ -419,7 +419,7 @@ router.delete('/id/:id', authenticateToken, async (req, res) => {
     // Delete assessment
     await db.query('DELETE FROM assessments WHERE id = ?', [id]);
 
-    logger.info(`Assessment deleted: ${id} by user: ${req.user.email}`);
+    logger.info(`Assessment deleted: ${id} by user: ${req.user?.email || 'public'}`);
 
     res.json({ message: 'Assessment deleted successfully' });
 
@@ -559,7 +559,7 @@ router.patch('/id/:id/publish', authenticateToken, async (req, res) => {
       status: updatedAssessment.status
     });
 
-    logger.info(`Assessment published with avatar config: ${id} by user: ${req.user.email}`);
+    logger.info(`Assessment published with avatar config: ${id} by user: ${req.user?.email || 'public'}`);
 
     res.json({
       message: 'Assessment published successfully with avatar configuration',
@@ -665,7 +665,7 @@ router.post('/:id/start', authenticateToken, async (req, res) => {
       assessmentId: id,
       mode: mode,
       userId: req.user.id,
-      userEmail: req.user.email
+      userEmail: req.user?.email || 'public'
     });
 
     // Validate assessment ID format
@@ -925,7 +925,7 @@ router.post('/:id/start', authenticateToken, async (req, res) => {
         ]
       );
 
-      logger.info(`Assessment session created: ${sessionId} for assessment: ${id} by user: ${req.user.email}`);
+      logger.info(`Assessment session created: ${sessionId} for assessment: ${id} by user: ${req.user?.email || 'public'}`);
       
     } catch (dbError) {
       logger.error('Database error creating assessment session:', dbError);
@@ -991,7 +991,7 @@ router.post('/:id/stop', authenticateToken, async (req, res) => {
       [session.id]
     );
 
-    logger.info(`Assessment session stopped: ${session.id} for assessment: ${id} by user: ${req.user.email}`);
+    logger.info(`Assessment session stopped: ${session.id} for assessment: ${id} by user: ${req.user?.email || 'public'}`);
 
     res.json({
       success: true,
@@ -1277,8 +1277,8 @@ router.post('/:id/send-text', authenticateToken, async (req, res) => {
   }
 });
 
-// Create assessment session (frontend handles Heygen)
-router.post('/:id/create-session', authenticateToken, async (req, res) => {
+// Create assessment session (frontend handles Heygen) - supports both authenticated and public access
+router.post('/:id/create-session', async (req, res) => {
   try {
     const { id } = req.params;
     const { heygenSessionId, streamUrl, mode = 'video', avatarConfig } = req.body;
@@ -1287,8 +1287,8 @@ router.post('/:id/create-session', authenticateToken, async (req, res) => {
       assessmentId: id,
       heygenSessionId: heygenSessionId,
       mode: mode,
-      userId: req.user.id,
-      userEmail: req.user.email
+      userId: req.user?.id || 'public',
+      userEmail: req.user?.email || 'public'
     });
 
     // Validate assessment ID format
@@ -1328,29 +1328,31 @@ router.post('/:id/create-session', authenticateToken, async (req, res) => {
       return res.status(500).json({ error: 'Database error while fetching assessment' });
     }
 
-    // Check if user already has an active session for this assessment
-    try {
-      const [existingSession] = await db.query(
-        'SELECT * FROM assessment_sessions WHERE assessment_id = ? AND user_id = ? AND status = "active"',
-        [id, req.user.id]
-      );
+    // Check if user already has an active session for this assessment (only for authenticated users)
+    if (req.user?.id) {
+      try {
+        const [existingSession] = await db.query(
+          'SELECT * FROM assessment_sessions WHERE assessment_id = ? AND user_id = ? AND status = "active"',
+          [id, req.user.id]
+        );
 
-      if (existingSession) {
-        logger.info('User already has active session:', {
-          sessionId: existingSession.id,
-          assessmentId: id,
-          userId: req.user.id
-        });
-        
-        return res.status(400).json({ 
-          error: 'You already have an active session for this assessment',
-          sessionId: existingSession.id,
-          streamUrl: existingSession.stream_url
-        });
+        if (existingSession) {
+          logger.info('User already has active session:', {
+            sessionId: existingSession.id,
+            assessmentId: id,
+            userId: req.user.id
+          });
+          
+          return res.status(400).json({ 
+            error: 'You already have an active session for this assessment',
+            sessionId: existingSession.id,
+            streamUrl: existingSession.stream_url
+          });
+        }
+      } catch (dbError) {
+        logger.error('Database error in session check:', dbError);
+        return res.status(500).json({ error: 'Database error while checking existing sessions' });
       }
-    } catch (dbError) {
-      logger.error('Database error in session check:', dbError);
-      return res.status(500).json({ error: 'Database error while checking existing sessions' });
     }
 
     // Create assessment session record
@@ -1366,7 +1368,7 @@ router.post('/:id/create-session', authenticateToken, async (req, res) => {
         [
           sessionId,
           id,
-          req.user.id,
+          req.user?.id || 'public',
           heygenSessionId,
           streamUrl,
           'active',
@@ -1375,7 +1377,7 @@ router.post('/:id/create-session', authenticateToken, async (req, res) => {
         ]
       );
 
-      logger.info(`Assessment session created: ${sessionId} for assessment: ${id} by user: ${req.user.email}`);
+      logger.info(`Assessment session created: ${sessionId} for assessment: ${id} by user: ${req.user?.email || 'public'}`);
       
     } catch (dbError) {
       logger.error('Database error creating assessment session:', dbError);
@@ -1400,7 +1402,7 @@ router.post('/:id/create-session', authenticateToken, async (req, res) => {
     logger.info('Assessment session creation completed successfully:', {
       sessionId: sessionId,
       assessmentId: id,
-      userId: req.user.id
+      userId: req.user?.id || 'public'
     });
 
     res.json(responseData);

@@ -5,10 +5,20 @@ const AssessmentCard = ({ assessment }) => {
   const [showToast, setShowToast] = useState(false);
 
   const handlePlay = () => {
-    // Route to avatar personalization first
-    window.location.href = `/assessment/${assessment.url}/personalize`;
-    // Or if you want to use React Router:
-    // navigate(`/assessment/${assessment.url}/personalize`);
+    console.log('Assessment clicked:', assessment);
+    console.log('Assessment type:', assessment.assessmentType);
+    console.log('Assessment URL:', assessment.url);
+    
+    // Check assessment type and route accordingly
+    if (assessment.assessmentType === 'text') {
+      console.log('Routing to text assessment:', `/assessment/${assessment.url}`);
+      // For text assessments, go directly to the assessment (which will auto-start)
+      window.location.href = `/assessment/${assessment.url}`;
+    } else {
+      console.log('Routing to personalization:', `/assessment/${assessment.url}/personalize`);
+      // For video/audio assessments, go to avatar personalization first
+      window.location.href = `/assessment/${assessment.url}/personalize`;
+    }
   };
 
   const handleCopy = async () => {

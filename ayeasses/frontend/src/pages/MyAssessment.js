@@ -275,7 +275,18 @@ const MyAssessment = () => {
                       <Eye className="w-4 h-4" />
                     </button>
                     <button 
-                      onClick={() => navigate(`/assessment/${assessment.url}/personalize`)}
+                      onClick={() => {
+                        console.log('MyAssessment - Assessment clicked:', assessment);
+                        console.log('MyAssessment - Assessment type:', assessment.assessmentType);
+                        // Check assessment type and route accordingly
+                        if (assessment.assessmentType === 'text') {
+                          console.log('MyAssessment - Routing to text assessment');
+                          navigate(`/assessment/${assessment.url}`);
+                        } else {
+                          console.log('MyAssessment - Routing to personalization');
+                          navigate(`/assessment/${assessment.url}/personalize`);
+                        }
+                      }}
                       className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
                       title="Play Assessment"
                     >

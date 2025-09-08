@@ -81,6 +81,15 @@ const HeygenPlayer = ({ streamUrl, accessToken, onReady, onError }) => {
       return;
     }
 
+    // Check if this is a mock token (for development)
+    if (accessToken.startsWith('mock_')) {
+      console.log('🔍 Mock mode detected, showing placeholder video');
+      setIsLoading(false);
+      setErrorMessage('Mock mode: Avatar simulation (HeyGen API not available)');
+      if (onReady) onReady();
+      return;
+    }
+
     const connection = connectionRef.current;
     if (connection.hasInitialized && connection.currentUrl === streamUrl && connection.isConnected) {
       return;
@@ -230,21 +239,46 @@ const HeygenPlayer = ({ streamUrl, accessToken, onReady, onError }) => {
     });
   };
 
+  // Check if we're in mock mode
+  const isMockMode = accessToken && accessToken.startsWith('mock_');
+
   return (
     <div className="heygen-player">
-      {isLoading && <p>Loading HeyGen avatar…</p>}
+      {isLoading && !isMockMode && <p>Loading HeyGen avatar…</p>}
       {errorMessage && (
         <div style={{ color: '#b91c1c', fontSize: 12, marginBottom: 6 }}>{errorMessage}</div>
       )}
 
-      <video
-        ref={videoRef}
-        autoPlay
-        playsInline
-        muted={!isAudioEnabled}
-        style={{ width: "100%", borderRadius: "12px" }}
-        onClick={() => { if (videoRef.current) { videoRef.current.play().catch(() => {}); } }}
-      />
+      {isMockMode ? (
+        <div style={{ 
+          width: "100%", 
+          height: "300px", 
+          borderRadius: "12px", 
+          backgroundColor: "#f3f4f6", 
+          display: "flex", 
+          alignItems: "center", 
+          justifyContent: "center",
+          border: "2px dashed #d1d5db",
+          flexDirection: "column"
+        }}>
+          <div style={{ fontSize: "48px", marginBottom: "16px" }}>🤖</div>
+          <div style={{ fontSize: "16px", color: "#6b7280", textAlign: "center" }}>
+            AI Avatar (Mock Mode)
+          </div>
+          <div style={{ fontSize: "12px", color: "#9ca3af", marginTop: "8px" }}>
+            HeyGen API not available - using simulation
+          </div>
+        </div>
+      ) : (
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted={!isAudioEnabled}
+          style={{ width: "100%", borderRadius: "12px" }}
+          onClick={() => { if (videoRef.current) { videoRef.current.play().catch(() => {}); } }}
+        />
+      )}
 
       <div className="controls" style={{ marginTop: "10px" }}>
         <button onClick={toggleVideo}>

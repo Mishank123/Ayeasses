@@ -450,7 +450,7 @@ class HeygenService {
   // Create streaming token for live Heygen API (legacy method)
   async createStreamingToken(params) {
     try {
-      const { avatarId, mode, emotionalStyle, tone, assessmentId, welcomeMessage } = params;
+      const { avatarId, mode = 'video', emotionalStyle, tone, assessmentId, welcomeMessage } = params;
       
       // Map avatar ID to Heygen avatar name
       const avatarName = avatarId === 'dr-jane-doe' ? 'avatar_002' : 'avatar_001';
