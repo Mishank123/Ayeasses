@@ -10,6 +10,12 @@ const VideoChatAssessment = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const sessionData = location.state?.sessionData;
+  
+  // Debug logging for session data
+  useEffect(() => {
+    console.log('🔍 VideoChatAssessment - sessionData from navigation:', sessionData);
+    console.log('🔍 VideoChatAssessment - accessToken in sessionData:', sessionData?.accessToken ? 'Present' : 'Missing');
+  }, [sessionData]);
 
   const [assessment, setAssessment] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -126,18 +132,31 @@ const VideoChatAssessment = () => {
         setError(null);
         console.log('Initializing HeyGen session (reuse if available)...');
 
-        // Prefer existing session created during mode selection
-        const stored = sessionStorage.getItem(`assessmentSession_${uuid}`);
-        if (stored) {
-          const existing = JSON.parse(stored);
-          if (existing.streamUrl && existing.sessionId && existing.streamUrl.startsWith('wss://')) {
-            console.log('♻️ Reusing existing HeyGen session from storage');
-            setStreamUrl(existing.streamUrl);
-            setAccessToken(existing.accessToken ? String(existing.accessToken) : null);
-            setChatSessionId(existing.sessionId);
-            await sendInitialHi();
-            return;
+        // Prefer session data from navigation state, then fall back to session storage
+        let sessionDataToUse = null;
+        
+        // First, try to use data from navigation state
+        if (sessionData && sessionData.streamUrl && sessionData.sessionId) {
+          console.log('♻️ Using session data from navigation state');
+          sessionDataToUse = sessionData;
+        } else {
+          // Fall back to session storage
+          const stored = sessionStorage.getItem(`assessmentSession_${uuid}`);
+          if (stored) {
+            const existing = JSON.parse(stored);
+            if (existing.streamUrl && existing.sessionId && existing.streamUrl.startsWith('wss://')) {
+              console.log('♻️ Reusing existing HeyGen session from storage');
+              sessionDataToUse = existing;
+            }
           }
+        }
+        
+        if (sessionDataToUse) {
+          setStreamUrl(sessionDataToUse.streamUrl);
+          setAccessToken(sessionDataToUse.accessToken ? String(sessionDataToUse.accessToken) : null);
+          setChatSessionId(sessionDataToUse.sessionId);
+          await sendInitialHi();
+          return;
         }
 
         // Fallback: create a fresh session

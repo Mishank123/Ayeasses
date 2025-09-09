@@ -938,6 +938,7 @@ router.post('/:id/start', authenticateToken, async (req, res) => {
       sessionId: sessionId,
       heygenSessionId: heygenResult.sessionId,
       streamUrl: heygenResult.streamUrl,
+      accessToken: heygenResult.accessToken, // Include access token for LiveKit
       messageId: heygenResult.messageId,
       spokenText: spokenText,
       aiScript: aiScript,
@@ -1038,8 +1039,8 @@ router.get('/:id/session', authenticateToken, async (req, res) => {
   }
 });
 
-// Send user reply to AvatarAI and get next question
-router.post('/:id/send-reply', authenticateToken, async (req, res) => {
+// Send user reply to AvatarAI and get next question (public access)
+router.post('/:id/send-reply', async (req, res) => {
   try {
     const { id } = req.params;
     const { userReply, chatSessionId = `session_${Date.now()}` } = req.body;
@@ -1048,10 +1049,10 @@ router.post('/:id/send-reply', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'User reply is required' });
     }
 
-    // Find active session for this assessment and user
+    // Find active session for this assessment (public access)
     const [session] = await db.query(
-      'SELECT * FROM assessment_sessions WHERE assessment_id = ? AND user_id = ? AND status = "active"',
-      [id, req.user?.id || 'public']
+      'SELECT * FROM assessment_sessions WHERE assessment_id = ? AND status = "active" ORDER BY created_at DESC LIMIT 1',
+      [id]
     );
 
     if (!session) {
@@ -1084,8 +1085,8 @@ router.post('/:id/send-reply', authenticateToken, async (req, res) => {
     const avatarAIPayload = {
       user_reply: userReply,
       course_id: id,
-      user_id: req.user.id,
-      user_name: req.user.name || 'User',
+      user_id: 'public_user',
+      user_name: 'Anonymous User',
       chat_session_id: chatSessionId,
       doctor_name: avatarConfig.avatarPersona === 'dr-jane-doe' ? 'Dr. Jane Doe' : 'Dr. Jacob Jones',
       doctor_avatar: avatarConfig.avatarPersona === 'dr-jane-doe' ? '/assets/images/doctor2.png' : '/assets/images/doctor1.png',

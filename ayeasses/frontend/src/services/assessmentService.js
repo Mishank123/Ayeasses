@@ -397,7 +397,7 @@ class AssessmentService {
     try {
       const payload = { userReply };
       if (chatSessionId) {
-        payload.Id = chatSessionId;
+        payload.chatSessionId = chatSessionId;
       }
       
       const response = await assessmentAPI.post(`/${assessmentId}/send-reply`, payload);

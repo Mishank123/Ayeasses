@@ -117,12 +117,31 @@ const HeygenPlayer = ({ streamUrl, accessToken, onReady, onError }) => {
     roomRef.current = room;
 
     const attachTrackIfPossible = (track) => {
-      if (!track || !videoRef.current) return;
-      try { track.attach(videoRef.current); } catch {}
+      console.log('🔍 Attempting to attach track:', {
+        track: track,
+        videoElement: !!videoRef.current,
+        trackKind: track?.kind
+      });
+      if (!track || !videoRef.current) {
+        console.log('❌ Cannot attach track - missing track or video element');
+        return;
+      }
+      try { 
+        track.attach(videoRef.current);
+        console.log('✅ Track attached successfully to video element');
+      } catch (err) {
+        console.error('❌ Failed to attach track:', err);
+      }
     };
 
     const setup = async () => {
       try {
+        console.log('🔍 LiveKit setup starting...', {
+          streamUrl: streamUrl,
+          accessToken: accessToken ? `${accessToken.substring(0, 20)}...` : 'None',
+          isLiveKitUrl: isLiveKitUrl(streamUrl)
+        });
+
         if (!isLiveKitUrl(streamUrl)) {
           throw new Error('Invalid LiveKit URL format. Expected wss:// URL');
         }
@@ -130,15 +149,19 @@ const HeygenPlayer = ({ streamUrl, accessToken, onReady, onError }) => {
         setErrorMessage(null);
         if (videoRef.current) videoRef.current.muted = true;
 
+        console.log('🔍 Connecting to LiveKit room...');
         await room.connect(streamUrl, accessToken, { 
           autoSubscribe: true,
           timeout: 30000,
           adaptiveStream: true,
           dynacast: true
         });
+        console.log('✅ LiveKit room connected successfully');
+        
         await new Promise(resolve => setTimeout(resolve, 500));
         connection.isConnected = true;
         connection.isConnecting = false;
+        console.log('✅ LiveKit connection state updated');
 
         // Safely iterate maps (could be undefined briefly)
         if (room.remoteParticipants && room.remoteParticipants.forEach) {
@@ -153,10 +176,17 @@ const HeygenPlayer = ({ streamUrl, accessToken, onReady, onError }) => {
         }
 
         room.on(RoomEvent.TrackPublished, async (publication) => {
-          try { await publication.setSubscribed(true); } catch {}
+          console.log('🔍 Track published:', publication);
+          try { 
+            await publication.setSubscribed(true);
+            console.log('✅ Track subscription set to true');
+          } catch (err) {
+            console.error('❌ Failed to subscribe to track:', err);
+          }
         });
 
         room.on(RoomEvent.TrackSubscribed, (track) => {
+          console.log('🔍 Track subscribed:', track);
           attachTrackIfPossible(track);
           setIsLoading(false);
           if (onReady) onReady();
@@ -180,6 +210,14 @@ const HeygenPlayer = ({ streamUrl, accessToken, onReady, onError }) => {
         });
 
       } catch (err) {
+        console.error('❌ LiveKit connection failed:', err);
+        console.error('❌ Error details:', {
+          message: err?.message,
+          stack: err?.stack,
+          streamUrl: streamUrl,
+          accessToken: accessToken ? 'Present' : 'Missing'
+        });
+        
         connection.isConnecting = false;
         connection.isConnected = false;
         connection.currentUrl = null;

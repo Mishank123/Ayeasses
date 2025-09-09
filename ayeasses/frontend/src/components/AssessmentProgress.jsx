@@ -17,6 +17,7 @@ const AssessmentProgress = () => {
     const [userResponse, setUserResponse] = useState('');
     const [isResponding, setIsResponding] = useState(false);
     const [chatSessionId, setChatSessionId] = useState(null);
+    const [conversationHistory, setConversationHistory] = useState([]);
 
     // Load assessment and session on mount
     useEffect(() => {
@@ -128,11 +129,53 @@ const AssessmentProgress = () => {
 
             if (result.success) {
                 toast.success('Response sent!');
-                setUserResponse('');
-                if (result.sessionId) setChatSessionId(result.sessionId);
-
+                
+                // Store user response for display
+                const userResponseData = {
+                    id: Date.now(),
+                    type: 'user',
+                    text: userResponse,
+                    timestamp: new Date()
+                };
+                
+                // Update current question with AI response
                 const { next_question, reply, response } = result.data;
-                setCurrentQuestion(next_question || reply || response || 'Awaiting next question...');
+                const aiResponse = next_question || reply || response || 'Awaiting next question...';
+                const nextQuestionData = {
+                    id: Date.now() + 1,
+                    type: 'avatar',
+                    text: aiResponse,
+                    timestamp: new Date()
+                };
+                
+                // Update conversation history
+                setConversationHistory(prev => [...prev, userResponseData, nextQuestionData]);
+                
+                setCurrentQuestion(aiResponse);
+                setUserResponse(''); // Clear input
+                
+                if (result.sessionId) setChatSessionId(result.sessionId);
+                
+                // Send AI response to HeyGen avatar to make it speak
+                if (sessionData?.sessionId && aiResponse) {
+                    try {
+                        const heygenService = (await import('../services/heygenService')).default;
+                        const heygenResult = await heygenService.sendTextToAvatar(sessionData.sessionId, aiResponse);
+                        if (heygenResult.success) {
+                            console.log('✅ AI response sent to HeyGen avatar for speaking');
+                        } else {
+                            console.warn('⚠️ Failed to send AI response to HeyGen avatar:', heygenResult.error);
+                        }
+                    } catch (heygenError) {
+                        console.warn('⚠️ Error sending to HeyGen avatar:', heygenError);
+                    }
+                }
+                
+                console.log('✅ Response sent successfully:', {
+                    userResponse: userResponse,
+                    aiResponse: aiResponse,
+                    sessionId: result.sessionId
+                });
             } else {
                 throw new Error(result.error || 'AvatarAI call failed.');
             }
@@ -232,6 +275,7 @@ const AssessmentProgress = () => {
                         <h2 className="text-lg font-semibold mb-4">AI Avatar</h2>
                         <HeygenPlayer
                             streamUrl={sessionData.streamUrl}
+                            accessToken={sessionData.accessToken}
                             onReady={handlePlayerReady}
                             onError={handlePlayerError}
                         />
@@ -256,6 +300,30 @@ const AssessmentProgress = () => {
                                 {currentQuestion || 'The assessment is about to begin.'}
                             </div>
                         </div>
+
+                        {/* Conversation History */}
+                        {conversationHistory.length > 0 && (
+                            <div className="mb-6">
+                                <label className="block text-sm font-medium mb-2">Conversation History</label>
+                                <div className="max-h-40 overflow-y-auto space-y-2">
+                                    {conversationHistory.map((message) => (
+                                        <div
+                                            key={message.id}
+                                            className={`p-2 rounded text-sm ${
+                                                message.type === 'user'
+                                                    ? 'bg-blue-50 text-blue-900 ml-4'
+                                                    : 'bg-gray-50 text-gray-900 mr-4'
+                                            }`}
+                                        >
+                                            <div className="font-medium text-xs mb-1">
+                                                {message.type === 'user' ? 'You' : 'Avatar'}
+                                            </div>
+                                            <div>{message.text}</div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
 
                         {/* User Response */}
                         <div className="mb-6">

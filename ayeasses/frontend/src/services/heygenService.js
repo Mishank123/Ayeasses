@@ -244,6 +244,7 @@ class HeygenService {
       
       // Access token to use for LiveKit - check both possible locations
       const accessToken = sessionData.access_token || response.data.access_token;
+      this.sessionAccessToken = accessToken; // Store the access token from streaming.new response
       
       console.log('🔍 Extracted session data:', {
         streamId: this.streamId,
@@ -318,17 +319,20 @@ class HeygenService {
   }
 
   // Step 4: Start streaming with /streaming.start using stream_id
-  async startStreaming(streamId, avatarName = 'Ann_Doctor_Sitting_public') {
+  async startStreaming(streamId, avatarName = 'Ann_Doctor_Sitting_public', accessToken = null) {
     try {
       console.log('Step 4: Starting streaming with /streaming.start');
       console.log('Stream ID:', streamId);
       console.log('Avatar Name:', avatarName);
-      console.log('Access Token:', this.accessToken ? this.accessToken.substring(0, 20) + '...' : 'Missing');
+      
+      // Use the access token from streaming.new response, fallback to this.accessToken
+      const tokenToUse = accessToken || this.accessToken;
+      console.log('Access Token:', tokenToUse ? tokenToUse.substring(0, 20) + '...' : 'Missing');
       
       if (!streamId) {
         throw new Error('Stream ID is required');
       }
-      if (!this.accessToken) {
+      if (!tokenToUse) {
         throw new Error('Access token is required');
       }
 
@@ -339,7 +343,7 @@ class HeygenService {
 
       const response = await heygenAPI.post('/streaming.start', requestPayload, {
         headers: {
-          'Authorization': `Bearer ${this.accessToken}`
+          'Authorization': `Bearer ${tokenToUse}`
         }
       });
       
@@ -429,7 +433,7 @@ class HeygenService {
 
       // Step 3: Start streaming and wait until LiveKit room is ready
       console.log('🔍 Starting streaming session to activate LiveKit room...');
-      const startResult = await this.startStreaming(sessionResult.streamId, params.avatarName);
+      const startResult = await this.startStreaming(sessionResult.streamId, params.avatarName, sessionResult.accessToken);
       if (!startResult.success) {
         throw new Error('Failed to start streaming session');
       }
@@ -490,7 +494,7 @@ class HeygenService {
         throw new Error('Failed to create streaming session');
       }
 
-      const startResult = await this.startStreaming(sessionResult.streamId, params.avatarName);
+      const startResult = await this.startStreaming(sessionResult.streamId, params.avatarName, sessionResult.accessToken);
       if (!startResult.success) {
         throw new Error('Failed to start streaming');
       }
@@ -502,7 +506,7 @@ class HeygenService {
         success: true,
         sessionId: sessionResult.streamId,
         streamUrl: sessionResult.streamUrl,
-        accessToken: tokenResult.accessToken,
+        accessToken: sessionResult.accessToken, // Use access token from streaming.new response
         realtimeEndpoint: sessionResult.realtimeEndpoint,
         iceServers: sessionResult.iceServers,
         taskId: null,

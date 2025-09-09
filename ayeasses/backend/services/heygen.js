@@ -58,10 +58,15 @@ class HeygenService {
 
       logger.info(`Heygen streaming session created successfully: ${response.data.session_id}`);
       
+      // Extract access token from the response data
+      const responseData = response.data.data || response.data;
+      const accessToken = responseData.access_token || response.data.access_token;
+      
       return {
         success: true,
         sessionId: response.data.session_id,
         streamUrl: response.data.url, // Use the url field from streaming.new
+        accessToken: accessToken, // Include access token for LiveKit
         sessionData: response.data
       };
 
