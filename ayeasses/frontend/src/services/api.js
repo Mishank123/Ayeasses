@@ -90,6 +90,7 @@ export const uploadAPI = {
   getImages: (params) => api.get(API_ENDPOINTS.UPLOAD.LIST_IMAGES, { params }),
 };
 
+
 // Health check
 export const healthAPI = {
   check: () => api.get(API_ENDPOINTS.HEALTH),

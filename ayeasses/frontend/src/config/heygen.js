@@ -7,7 +7,7 @@ export const HEYGEN_CONFIG = {
   getApiKey: () => {
     const envKey = process.env.REACT_APP_HEYGEN_API_KEY;
     const localKey = localStorage.getItem('heygen_api_key');
-    const validKey = 'YzBjYTYzNThkMzk1NGQ1ODlmMjg3YWFmNDNlMDgwNDctMTc1NzMyNzE4Ng=='; // Valid Heygen API key
+    const validKey = 'Nzc1N2M5OGM3Y2Q1NDkzZmE1OThmOTM2NzU3ZDM0NTUtMTc1NjEwOTkwOQ=='; // Valid Heygen API key
     
     const apiKey = envKey || localKey || validKey;
     
@@ -25,12 +25,15 @@ export const HEYGEN_CONFIG = {
     // For base64 encoded keys, just check if it's a valid base64 string
     try {
       if (typeof window !== 'undefined') {
-        atob(apiKey); // Test if it's valid base64
+        const decoded = atob(apiKey); // Test if it's valid base64
+        // Check if decoded key has the expected format (contains dash)
+        return decoded.includes('-');
       } else {
-        Buffer.from(apiKey, 'base64').toString('utf-8');
+        const decoded = Buffer.from(apiKey, 'base64').toString('utf-8');
+        return decoded.includes('-');
       }
-      return true;
     } catch (error) {
+      console.error('API key validation error:', error);
       return false;
     }
   },

@@ -90,6 +90,29 @@ const HeygenPlayer = ({ streamUrl, accessToken, onReady, onError }) => {
       return;
     }
 
+    // Validate LiveKit access token format
+    if (!accessToken.startsWith('eyJ')) {
+      console.error('❌ Invalid LiveKit access token format. Expected JWT token starting with "eyJ"');
+      setErrorMessage('Invalid access token format');
+      setIsLoading(false);
+      return;
+    }
+
+    // Debug: Decode the JWT token to check its contents
+    try {
+      const tokenParts = accessToken.split('.');
+      if (tokenParts.length === 3) {
+        const payload = JSON.parse(atob(tokenParts[1]));
+        console.log('🔍 JWT Token payload:', payload);
+        console.log('🔍 Token expiration:', new Date(payload.exp * 1000));
+        console.log('🔍 Token issued at:', new Date(payload.iat * 1000));
+        console.log('🔍 Token subject:', payload.sub);
+        console.log('🔍 Token room:', payload.room);
+      }
+    } catch (err) {
+      console.error('❌ Failed to decode JWT token:', err);
+    }
+
     const connection = connectionRef.current;
     if (connection.hasInitialized && connection.currentUrl === streamUrl && connection.isConnected) {
       return;
@@ -150,11 +173,24 @@ const HeygenPlayer = ({ streamUrl, accessToken, onReady, onError }) => {
         if (videoRef.current) videoRef.current.muted = true;
 
         console.log('🔍 Connecting to LiveKit room...');
+        console.log('🔍 Connection details:', {
+          streamUrl: streamUrl,
+          accessTokenLength: accessToken ? accessToken.length : 0,
+          accessTokenStart: accessToken ? accessToken.substring(0, 50) + '...' : 'None'
+        });
+        
         await room.connect(streamUrl, accessToken, { 
           autoSubscribe: true,
-          timeout: 30000,
+          timeout: 60000, // Increased timeout to 60 seconds
           adaptiveStream: true,
-          dynacast: true
+          dynacast: true,
+          reconnectPolicy: {
+            nextRetryDelayInMs: (context) => {
+              // Exponential backoff with max delay of 10 seconds
+              return Math.min(1000 * Math.pow(2, context.retryCount), 10000);
+            },
+            maxRetries: 5
+          }
         });
         console.log('✅ LiveKit room connected successfully');
         
@@ -199,13 +235,58 @@ const HeygenPlayer = ({ streamUrl, accessToken, onReady, onError }) => {
         });
 
         room.on(RoomEvent.ConnectionStateChanged, (state) => {
+          console.log('🔍 LiveKit connection state changed:', state);
           if (state === 'connected') {
             connection.isConnected = true;
             connection.isConnecting = false;
+            console.log('✅ LiveKit connection established');
           } else if (state === 'disconnected' || state === 'failed') {
             connection.isConnected = false;
             connection.isConnecting = false;
             connection.hasInitialized = false;
+            console.error('❌ LiveKit connection failed or disconnected:', state);
+          }
+        });
+
+        room.on(RoomEvent.Connected, () => {
+          console.log('✅ LiveKit room connected event fired');
+        });
+
+        room.on(RoomEvent.Disconnected, (reason) => {
+          console.log('❌ LiveKit room disconnected:', reason);
+          connection.isConnected = false;
+          connection.isConnecting = false;
+          connection.hasInitialized = false;
+          
+          // Handle different disconnection reasons
+          let errorMessage = 'Connection lost';
+          switch (reason) {
+            case 5:
+              errorMessage = 'Connection timeout. Please check your network.';
+              break;
+            case 1:
+              errorMessage = 'Server error. Please try again.';
+              break;
+            case 2:
+              errorMessage = 'Client error. Please refresh the page.';
+              break;
+            default:
+              errorMessage = `Connection lost (${reason}). Please try again.`;
+          }
+          
+          setErrorMessage(errorMessage);
+          setIsLoading(false);
+          
+          // Attempt to reconnect after a short delay for recoverable errors
+          if (reason !== 5 && reason !== 1) { // Don't reconnect on timeout or server errors
+            console.log('🔄 Attempting to reconnect in 3 seconds...');
+            setTimeout(() => {
+              if (!connection.isConnected && !connection.isConnecting) {
+                console.log('🔄 Reconnecting to LiveKit...');
+                setErrorMessage(null);
+                setup();
+              }
+            }, 3000);
           }
         });
 
@@ -215,7 +296,10 @@ const HeygenPlayer = ({ streamUrl, accessToken, onReady, onError }) => {
           message: err?.message,
           stack: err?.stack,
           streamUrl: streamUrl,
-          accessToken: accessToken ? 'Present' : 'Missing'
+          accessToken: accessToken ? 'Present' : 'Missing',
+          accessTokenPreview: accessToken ? accessToken.substring(0, 20) + '...' : 'None',
+          errorCode: err?.code,
+          errorReason: err?.reason
         });
         
         connection.isConnecting = false;
@@ -223,7 +307,20 @@ const HeygenPlayer = ({ streamUrl, accessToken, onReady, onError }) => {
         connection.currentUrl = null;
         connection.hasInitialized = false;
         setIsLoading(false);
-        setErrorMessage(err?.message || 'Connection failed');
+        
+        // Provide more specific error messages
+        let errorMsg = 'Connection failed';
+        if (err?.message?.includes('Invalid token')) {
+          errorMsg = 'Invalid access token. Please refresh the page.';
+        } else if (err?.message?.includes('Network')) {
+          errorMsg = 'Network error. Please check your connection.';
+        } else if (err?.message?.includes('timeout')) {
+          errorMsg = 'Connection timeout. Please try again.';
+        } else if (err?.message) {
+          errorMsg = err.message;
+        }
+        
+        setErrorMessage(errorMsg);
         if (onError) onError(err);
         if (roomRef.current) {
           try { roomRef.current.disconnect(); } catch {}

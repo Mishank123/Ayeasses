@@ -95,7 +95,28 @@ const AssessmentProgress = () => {
                 if (result.chatSessionId) setChatSessionId(result.chatSessionId);
 
                 const { next_question, reply, response } = result.data;
-                setCurrentQuestion(next_question || reply || response || 'Let’s begin the assessment.');
+                const initialQuestion = next_question || reply || response || 'Let\'s begin the assessment.';
+                setCurrentQuestion(initialQuestion);
+
+                // Send initial question to HeyGen avatar to make it speak
+                if (sessionData?.heygenSessionId && initialQuestion) {
+                    try {
+                        const heygenService = (await import('../services/heygenService')).default;
+                        const heygenResult = await heygenService.sendTextToAvatar(sessionData.heygenSessionId, initialQuestion);
+                        if (heygenResult.success) {
+                            console.log('✅ Initial question sent to HeyGen avatar for speaking');
+                        } else {
+                            console.warn('⚠️ Failed to send initial question to HeyGen avatar:', heygenResult.error);
+                        }
+                    } catch (heygenError) {
+                        console.warn('⚠️ Error sending initial question to HeyGen avatar:', heygenError);
+                    }
+                } else {
+                    console.warn('⚠️ Cannot send initial question to HeyGen avatar - missing heygenSessionId or question:', {
+                        heygenSessionId: sessionData?.heygenSessionId,
+                        initialQuestion: initialQuestion
+                    });
+                }
             } else {
                 throw new Error(result.error || 'Initial greeting failed.');
             }
@@ -157,10 +178,10 @@ const AssessmentProgress = () => {
                 if (result.sessionId) setChatSessionId(result.sessionId);
                 
                 // Send AI response to HeyGen avatar to make it speak
-                if (sessionData?.sessionId && aiResponse) {
+                if (sessionData?.heygenSessionId && aiResponse) {
                     try {
                         const heygenService = (await import('../services/heygenService')).default;
-                        const heygenResult = await heygenService.sendTextToAvatar(sessionData.sessionId, aiResponse);
+                        const heygenResult = await heygenService.sendTextToAvatar(sessionData.heygenSessionId, aiResponse);
                         if (heygenResult.success) {
                             console.log('✅ AI response sent to HeyGen avatar for speaking');
                         } else {
@@ -169,6 +190,11 @@ const AssessmentProgress = () => {
                     } catch (heygenError) {
                         console.warn('⚠️ Error sending to HeyGen avatar:', heygenError);
                     }
+                } else {
+                    console.warn('⚠️ Cannot send to HeyGen avatar - missing heygenSessionId or aiResponse:', {
+                        heygenSessionId: sessionData?.heygenSessionId,
+                        aiResponse: aiResponse
+                    });
                 }
                 
                 console.log('✅ Response sent successfully:', {

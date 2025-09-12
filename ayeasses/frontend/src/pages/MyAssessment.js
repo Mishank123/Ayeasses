@@ -105,6 +105,7 @@ const MyAssessment = () => {
     window.open(url, '_blank');
   };
 
+
   // Get status badge color
   const getStatusBadgeColor = (status) => {
     switch (status) {
@@ -361,6 +362,7 @@ const MyAssessment = () => {
           )}
         </>
       )}
+
     </div>
   );
 };

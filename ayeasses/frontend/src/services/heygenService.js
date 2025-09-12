@@ -90,7 +90,10 @@ class HeygenService {
     try {
       console.log('🔍 Testing Heygen API connection...');
       console.log('API Base URL:', HEYGEN_CONFIG.API_BASE_URL);
-      console.log('API Key:', HEYGEN_CONFIG.getApiKey() ? 'Present' : 'Missing');
+      const apiKey = HEYGEN_CONFIG.getApiKey();
+      console.log('API Key:', apiKey ? 'Present' : 'Missing');
+      console.log('API Key preview:', apiKey ? apiKey.substring(0, 20) + '...' : 'None');
+      console.log('API Key validation:', HEYGEN_CONFIG.validateApiKey(apiKey));
       
       const response = await heygenAPI.post('/streaming.create_token');
       
@@ -108,6 +111,7 @@ class HeygenService {
       console.error('Error:', error.message);
       console.error('Status:', error.response?.status);
       console.error('Data:', error.response?.data);
+      console.error('Full error:', error);
       
       return {
         success: false,
